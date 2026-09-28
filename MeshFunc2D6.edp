@@ -1,0 +1,571 @@
+/*
+    MeshFunc2D.edp
+    This script is designed for mesh generation in FreeFem++.
+    The script defines a computational domain T, which is the unit square Y = [0, 1]x[0, 1].
+    It also defines a sub-region S (S is a subset of Y) for multiscale analysis.
+*/
+
+macro LINE2D(Name, x1, y1, x2, y2, ref) border Name(t = 0, 1){x = (1 - t) * (x1) + t * (x2);
+y = (1 - t) * (y1) + t * (y2); label = (ref); } // Straight line boundary
+macro RECT2D(B1, B2, B3, B4, ox, oy, w, h, l1, l2, l3, l4) 
+      LINE2D(B1, ox,   oy,   ox+w, oy,   l1)
+      LINE2D(B2, ox+w, oy,   ox+w, oy+h, l2)
+      LINE2D(B3, ox+w, oy+h, ox,   oy+h, l3)
+      LINE2D(B4, ox,   oy+h, ox,   oy,   l4) // Rectangle boundary generation
+macro Ellipse2D(Name, rx, ry, ra, rb, theta, ref) border Name(t = 0, 2*pi){x = (rx) + (ra)*cos(t)*cos(theta) - (rb)*sin(t)*sin(theta);
+y = (ry) + (ra)*cos(t)*sin(theta) + (rb)*sin(t)*cos(theta); 
+      	                                                                   label = (ref);
+} // Ellipse boundary generation
+
+/*func mesh CRectangle(real originX, real originY, 
+                     real width,   real height, 
+                     int nGrid0, bool isHole)
+                     
+    Note: Domain is Y=[0, 1]x[0, 1].
+    Type: Solid (isHole=0) or Hole (isHole=1).
+    Params: Bottom-left corner (originX, originY), width, and height.
+    Labels: Outer boundary is 1, 2, 3, 4.
+    Labels: Inner boundary is 11, 12, 13, 14.
+    (Requirement: width<1, height<1, originX+width<1, originY+height<1)
+*/
+func mesh CRectangle(real originX, real originY, 
+                     real width,   real height, 
+                     int nGrid0, bool isHole)
+{	
+	// Outer boundary
+	RECT2D(C01, C02, C03, C04, 0, 0, 1, 1, 1, 2, 3, 4)
+    
+	// Inner boundary
+	RECT2D(C11, C12, C13, C14, originX, originY, width, height, 11, 12, 13, 14)
+	
+	// Mesh density
+	int nGrid1 = isHole?-nGrid0*width:nGrid0*width;
+	int nGrid2 = isHole?-nGrid0*height:nGrid0*height;
+	mesh Th = buildmesh(C01(nGrid0)+C02(nGrid0)+C03(nGrid0)+C04(nGrid0)
+                       +C11(nGrid1)+C12(nGrid2)+C13(nGrid1)+C14(nGrid2));
+	return Th;
+}
+
+func mesh CRound(real orginX, real orginY, 
+                 real radius, int nGrid0, bool isHole)
+{
+    // 1. Outer boundary
+    border C01 (t=0, 1) { x = t; y = 0; label = 1;
+    }
+    border C02 (t=0, 1) { x = 1; y = t; label = 2;
+    }
+    border C03 (t=0, 1) { x = 1-t; y = 1; label = 3;
+    }
+    border C04 (t=0, 1) { x = 0; y = 1-t; label = 4;
+    }
+
+    // 2. Inner boundary
+    border C11 (t=0, 2*pi) { 
+        x = orginX + radius * cos(t);
+        y = orginY + radius * sin(t); 
+        label = 11;
+    }
+    
+    int nGridCircle = nGrid0 * (2 * pi * radius);
+    int nDir = isHole ? -nGridCircle : nGridCircle;
+    mesh Th = buildmesh( C01(nGrid0) + C02(nGrid0) + C03(nGrid0) + C04(nGrid0) + C11(nDir) );
+    return Th;
+}
+
+func mesh CEllipse(real rx, real ry, real a, real b, real angle, int nGrid0, int isHole)
+{
+	// Outer boundary
+	RECT2D(C01, C02, C03, C04, 0, 0, 1, 1, 1, 2, 3, 4)
+
+    // Inner boundary
+    border ell01(t=0,pi){ x=rx+a*cos(t); y=ry+b*sin(t);label=11;}
+	border ell02(t=pi,2*pi){ x=rx+a*cos(t);
+    y=ry+b*sin(t);label=11;}	
+    real m = min(a, b);
+    real length = 2*pi*m + 4*abs(a-b);
+    
+	int nGrid1 = isHole? -length*nGrid0:length*nGrid0;
+    mesh Th = buildmesh(C01(nGrid0)+C02(nGrid0)+C03(nGrid0)+C04(nGrid0)
+						+ell01(nGrid1)+ell02(nGrid1));
+    return Th;
+}
+
+func mesh CDiamond(real a, real b, int nGrid0, int isHole)
+{
+	// Outer boundary
+	RECT2D(C01, C02, C03, C04, 0, 0, 1, 1, 1, 2, 3, 4)
+	
+	// Diamond boundary
+	LINE2D(C11, 0.5,     0.5 - b, 0.5 + a, 0.5,     11)
+	LINE2D(C12, 0.5 + a, 0.5,     0.5,     0.5 + b, 12)
+	LINE2D(C13, 0.5,     0.5 + b, 0.5 - a, 0.5,     13)
+	LINE2D(C14, 0.5 - a, 0.5,     0.5,     0.5 - b, 14)
+	
+	// Mesh density
+	int nGrid1 = isHole? -sqrt(a^2+b^2)*nGrid0:sqrt(a^2+b^2)*nGrid0;
+	
+    mesh CellTh = buildmesh(C01(nGrid0)+C02(nGrid0)+C03(nGrid0)+C04(nGrid0)
+                      +C11(nGrid1)+C12(nGrid1)+C13(nGrid1)+C14(nGrid1));
+    return CellTh;
+}
+//mesh CellTh = CDiamond(0.3,0.3,40,0);
+//plot(CellTh, wait=true, fill=false, cmm="Diamond Hole Mesh (a=0.3, b=0.3)");
+func mesh CTriangle(real L, real tx, real ty, int nGrid, int isHole)
+{
+	// Outer boundary
+	RECT2D(C01, C02, C03, C04, 0, 0, 1, 1, 1, 2, 3, 4)
+	
+	// Triangle boundary
+	LINE2D(T1, tx - L/2, ty - sqrt(3)/6*L, tx + L/2, ty - sqrt(3)/6*L, 11)
+	LINE2D(T2, tx + L/2, ty - sqrt(3)/6*L, tx ,      ty + sqrt(3)/3*L, 12)
+	LINE2D(T3, tx ,      ty + sqrt(3)/3*L, tx - L/2, ty - sqrt(3)/6*L, 13)
+	
+	int tGrid = isHole?-nGrid*L:nGrid*L;
+    mesh CellTh = buildmesh(C01(nGrid)+C02(nGrid)+C03(nGrid)+C04(nGrid)
+                      +T1(tGrid)+T2(tGrid)+T3(tGrid));
+    return CellTh;
+}
+
+
+func mesh CStar(real radius, real sx, real sy, int nGrid, int isHole)
+{	
+	// Outer boundary
+	RECT2D(C01, C02, C03, C04, 0, 0, 1, 1, 1, 2, 3, 4)
+
+	real[int] aX(5), aY(5), bX(5), bY(5);
+	real angle18 = 0.1*pi;
+	real angle36 = 0.2*pi;
+	real angle54 = 0.3*pi;
+	real angle72 = 0.4*pi;
+	real aLen = radius;
+	real bLen = aLen*sin(angle18)/sin(angle54);
+	
+	for(int i = 0; i < 5; i++)
+	{
+		aX[i] = aLen*cos(angle18 + angle72*i);
+		aY[i] = aLen*sin(angle18 + angle72*i);
+		bX[i] = bLen*cos(angle54 + angle72*i);
+		bY[i] = bLen*sin(angle54 + angle72*i);
+	}
+		
+	LINE2D(L1, aX[0] + sx, aY[0] + sy, bX[0] + sx, bY[0] + sy, 20)
+	LINE2D(L2, bX[0] + sx, bY[0] + sy, aX[1] + sx, aY[1] + sy, 20)
+	LINE2D(L3, aX[1] + sx, aY[1] + sy, bX[1] + sx, bY[1] + sy, 20)
+	LINE2D(L4, bX[1] + sx, bY[1] + sy, aX[2] + sx, aY[2] + sy, 20)
+	LINE2D(L5, aX[2] + sx, aY[2] + sy, bX[2] + sx, bY[2] + sy, 20)
+	LINE2D(L6, bX[2] + sx, bY[2] + sy, aX[3] + sx, aY[3] + sy, 20)
+	LINE2D(L7, aX[3] + sx, aY[3] + sy, bX[3] + sx, bY[3] + sy, 20)
+	LINE2D(L8, bX[3] + sx, bY[3] + sy, aX[4] + sx, aY[4] + sy, 20)
+	LINE2D(L9, aX[4] + sx, aY[4] + sy, bX[4] + sx, bY[4] + sy, 20)
+    LINE2D(L10, bX[4] + sx, bY[4] + sy, aX[0] + sx, aY[0] + sy, 20)
+	
+	real lenStar0 = sqrt(aLen^2 + bLen^2 - 2*aLen*bLen*cos(angle36));
+	int lenStar = isHole? -nGrid * lenStar0:nGrid * lenStar0;
+	mesh CellTh = buildmesh(C01(nGrid) + C02(nGrid) + C03(nGrid) + C04(nGrid)
+                      + L1(lenStar) + L2(lenStar) +  L3(lenStar) + L4(lenStar) + L5(lenStar)
+                      + L6(lenStar) + L7(lenStar) + L8(lenStar) + L9(lenStar) + L10(lenStar));
+    return CellTh;
+}
+
+func mesh CRectangleHoleCompo(real M1x, real M1y,
+                              real M1Width, real M1Height,
+                              real M2x, real M2y,
+                              real M2Width, real M2Height,
+                              int nGrid0)
+{
+	// Outer boundary
+	RECT2D(C01, C02, C03, C04, 0, 0, 1, 1, 1, 2, 3, 4)
+	
+	// Rectangle 1
+	RECT2D(C11, C12, C13, C14, M1x, M1y, M1Width, M1Height, 11, 12, 13, 14)
+	// Rectangle 2
+	RECT2D(C21, C22, C23, C24, M2x, M2y, M2Width, M2Height, 21, 22, 23, 24)
+	
+	int nGrid1 = nGrid0*M1Width*(-1);
+	int nGrid2 = nGrid0*M2Width;
+	mesh CellTh = buildmesh(C01(nGrid0)+C02(nGrid0)+C03(nGrid0)+C04(nGrid0)
+    	                   +C11(nGrid1)+C12(nGrid1)+C13(nGrid1)+C14(nGrid1)
+        	               +C21(nGrid2)+C22(nGrid2)+C23(nGrid2)+C24(nGrid2));
+    return CellTh;
+}
+
+func mesh CLayeredY(real ratio, int nGrid)
+{
+    // ===== 几何参数 =====
+    real hMat = (1.0-ratio)/2.0;
+
+    // ===== 保证网格严格匹配 =====
+    int nyInc = int(round(ratio*nGrid));
+    int nyMat = (nGrid-nyInc)/2;
+
+    if(nyMat < 1) nyMat = 1;
+
+    nyInc = nGrid - 2*nyMat;
+
+    int[int] lab1(4), lab2(4), lab3(4);
+
+    lab1 = [1,2,0,4];
+
+    lab2 = [0,2,0,4];
+
+    lab3 = [0,2,3,4];
+
+    mesh Th1 = square(
+        nGrid,
+        nyMat,
+        [x,hMat*y],
+        label=lab1
+    );
+
+    int[int] reg1 = [0,1];
+    Th1 = change(Th1,region=reg1);
+
+    mesh Th2 = square(
+        nGrid,
+        nyInc,
+        [x,ratio*y+hMat],
+        label=lab2
+    );
+
+    int[int] reg2 = [0,6];
+    Th2 = change(Th2,region=reg2);
+
+    mesh Th3 = square(
+        nGrid,
+        nyMat,
+        [x,hMat*y+hMat+ratio],
+        label=lab3
+    );
+
+    int[int] reg3 = [0,1];
+    Th3 = change(Th3,region=reg3);
+
+    mesh Th = Th1 + Th2 + Th3;
+
+    return Th;
+}
+
+
+func mesh C2Circles(real rx1, real ry1, real radius1, real rx2, real ry2, real radius2, int nGrid0, int isHole)
+{
+	// Outer boundary
+	RECT2D(C01, C02, C03, C04, 0, 0, 1, 1, 1, 2, 3, 4)
+
+	// Circles
+	Ellipse2D(Circle1, rx1, ry1, radius1, radius1, 0.0, 30)
+	Ellipse2D(Circle2, rx2, ry2, radius2, radius2, 0.0, 31)
+	
+	int nGrid1 = isHole?-2*pi*radius1*nGrid0:2*pi*radius1*nGrid0;
+	int nGrid2 = isHole?-2*pi*radius2*nGrid0:2*pi*radius2*nGrid0;
+
+	mesh Th = buildmesh(C01(nGrid0)+C02(nGrid0)+C03(nGrid0)+C04(nGrid0)
+	                   +Circle1(nGrid1)+Circle2(nGrid2));
+	if(!isHole)
+	{
+	    int RM1 = Th(0.5, 0.5).region;
+	    int RM2 = Th(0.25, 0.25).region;
+	    int RM3 = Th(0.75, 0.75).region;
+	    int[int] R1 = [RM1, 4, RM2, 0, RM3, 0];
+	    Th = change(Th, region=R1);
+	}
+	return Th;
+}
+
+func mesh CRegularPolygon3(real radius, real initialPhase, int nGrid0, bool isHole)
+{
+	// Outer boundary
+	RECT2D(C01, C02, C03, C04, 0, 0, 1, 1, 1, 2, 3, 4)
+    
+    int n = 3;
+	real[int] rX(n), rY(n);
+    for(int i = 0; i < n; i++)
+    {
+    	rX[i] = 0.5 + radius*cos(2*pi/n*i + initialPhase);
+	    rY[i] = 0.5 + radius*sin(2*pi/n*i + initialPhase);
+    }
+    
+    LINE2D(P1, rX[0], rY[0], rX[1], rY[1], 101)
+    LINE2D(P2, rX[1], rY[1], rX[2], rY[2], 102)
+    LINE2D(P3, rX[2], rY[2], rX[0], rY[0], 103)
+    
+    real l = radius*sqrt(2*(1-cos(2*pi/n)));
+	int nGrid1 = isHole?-l*nGrid0:l*nGrid0;
+    mesh Th = buildmesh(C01(nGrid0)+C02(nGrid0)+C03(nGrid0)+C04(nGrid0)
+                       +P1(nGrid1)+P2(nGrid1)+P3(nGrid1));
+    return Th;
+}
+
+func mesh CRegularPolygon4(real radius, real initialPhase, int nGrid0, bool isHole)
+{
+	// Outer boundary
+	RECT2D(C01, C02, C03, C04, 0, 0, 1, 1, 1, 2, 3, 4)
+    
+    int n = 4;
+	real[int] rX(n), rY(n);
+    for(int i = 0; i < n; i++)
+    {
+    	rX[i] = 0.5 + radius*cos(2*pi/n*i + initialPhase);
+	    rY[i] = 0.5 + radius*sin(2*pi/n*i + initialPhase);
+    }
+    
+    LINE2D(P1, rX[0], rY[0], rX[1], rY[1], 101)
+    LINE2D(P2, rX[1], rY[1], rX[2], rY[2], 102)
+    LINE2D(P3, rX[2], rY[2], rX[3], rY[3], 103)
+    LINE2D(P4, rX[3], rY[3], rX[0], rY[0], 104)
+    
+    real l = radius*sqrt(2*(1-cos(2*pi/n)));
+	int nGrid1 = isHole?-l*nGrid0:l*nGrid0;
+    mesh Th = buildmesh(C01(nGrid0)+C02(nGrid0)+C03(nGrid0)+C04(nGrid0)
+                       +P1(nGrid1)+P2(nGrid1)+P3(nGrid1)+P4(nGrid1));
+    return Th;
+}
+
+func mesh CRegularPolygon5(real radius, real initialPhase, int nGrid0, bool isHole)
+{
+	// Outer boundary
+	RECT2D(C01, C02, C03, C04, 0, 0, 1, 1, 1, 2, 3, 4)
+    
+    int n = 5;
+	real[int] rX(n), rY(n);
+    for(int i = 0; i < n; i++)
+    {
+    	rX[i] = 0.5 + radius*cos(2*pi/n*i + initialPhase);
+	    rY[i] = 0.5 + radius*sin(2*pi/n*i + initialPhase);
+    }
+    
+    LINE2D(P1, rX[0], rY[0], rX[1], rY[1], 101)
+    LINE2D(P2, rX[1], rY[1], rX[2], rY[2], 102)
+    LINE2D(P3, rX[2], rY[2], rX[3], rY[3], 103)
+    LINE2D(P4, rX[3], rY[3], rX[4], rY[4], 104)
+    LINE2D(P5, rX[4], rY[4], rX[0], rY[0], 105)
+    
+    real l = radius*sqrt(2*(1-cos(2*pi/n)));
+	int nGrid1 = isHole?-l*nGrid0:l*nGrid0;
+    mesh Th = buildmesh(C01(nGrid0)+C02(nGrid0)+C03(nGrid0)+C04(nGrid0)
+                       +P1(nGrid1)+P2(nGrid1)+P3(nGrid1)+P4(nGrid1)+P5(nGrid1));
+    return Th;
+}
+
+func mesh CRegularPolygon6(real radius, real initialPhase, int nGrid0, bool isHole)
+{
+	// Outer boundary
+	RECT2D(C01, C02, C03, C04, 0, 0, 1, 1, 1, 2, 3, 4)
+    
+    int n = 6;
+	real[int] rX(n), rY(n);
+    for(int i = 0; i < n; i++)
+    {
+    	rX[i] = 0.5 + radius*cos(2*pi/n*i + initialPhase);
+	    rY[i] = 0.5 + radius*sin(2*pi/n*i + initialPhase);
+    }
+    
+    LINE2D(P1, rX[0], rY[0], rX[1], rY[1], 101)
+    LINE2D(P2, rX[1], rY[1], rX[2], rY[2], 102)
+    LINE2D(P3, rX[2], rY[2], rX[3], rY[3], 103)
+    LINE2D(P4, rX[3], rY[3], rX[4], rY[4], 104)
+    LINE2D(P5, rX[4], rY[4], rX[5], rY[5], 105)
+    LINE2D(P6, rX[5], rY[5], rX[0], rY[0], 106)
+    
+    real l = radius*sqrt(2*(1-cos(2*pi/n)));
+	int nGrid1 = isHole?-l*nGrid0:l*nGrid0;
+    mesh Th = buildmesh(C01(nGrid0)+C02(nGrid0)+C03(nGrid0)+C04(nGrid0)
+                       +P1(nGrid1)+P2(nGrid1)+P3(nGrid1)+P4(nGrid1)+P5(nGrid1)+P6(nGrid1));
+    return Th;
+}
+
+func mesh CRegularPolygon8(real radius, real initialPhase, int nGrid0, bool isHole)
+{
+	// Outer boundary
+	RECT2D(C01, C02, C03, C04, 0, 0, 1, 1, 1, 2, 3, 4)
+    
+    int n = 8;
+	real[int] rX(n), rY(n);
+    for(int i = 0; i < n; i++)
+    {
+    	rX[i] = 0.5 + radius*cos(2*pi/n*i + initialPhase);
+	    rY[i] = 0.5 + radius*sin(2*pi/n*i + initialPhase);
+    }
+    
+    LINE2D(P1, rX[0], rY[0], rX[1], rY[1], 101)
+    LINE2D(P2, rX[1], rY[1], rX[2], rY[2], 102)
+    LINE2D(P3, rX[2], rY[2], rX[3], rY[3], 103)
+    LINE2D(P4, rX[3], rY[3], rX[4], rY[4], 104)
+    LINE2D(P5, rX[4], rY[4], rX[5], rY[5], 105)
+    LINE2D(P6, rX[5], rY[5], rX[6], rY[6], 106)
+    LINE2D(P7, rX[6], rY[6], rX[7], rY[7], 107)
+    LINE2D(P8, rX[7], rY[7], rX[0], rY[0], 108)
+    
+    real l = radius*sqrt(2*(1-cos(2*pi/n)));
+	int nGrid1 = isHole?-l*nGrid0:l*nGrid0;
+    mesh Th = buildmesh(C01(nGrid0)+C02(nGrid0)+C03(nGrid0)+C04(nGrid0)
+                       +P1(nGrid1)+P2(nGrid1)+P3(nGrid1)+P4(nGrid1)+P5(nGrid1)+P6(nGrid1)+P7(nGrid1)+P8(nGrid1));
+    return Th;
+}
+
+func mesh CRegularPolygon9(real radius, real initialPhase, int nGrid0, bool isHole)
+{
+	// Outer boundary
+	RECT2D(C01, C02, C03, C04, 0, 0, 1, 1, 1, 2, 3, 4)
+    
+    int n = 9;
+	real[int] rX(n), rY(n);
+    for(int i = 0; i < n; i++)
+    {
+    	rX[i] = 0.5 + radius*cos(2*pi/n*i + initialPhase);
+	    rY[i] = 0.5 + radius*sin(2*pi/n*i + initialPhase);
+    }
+    
+    LINE2D(P1, rX[0], rY[0], rX[1], rY[1], 101)
+    LINE2D(P2, rX[1], rY[1], rX[2], rY[2], 102)
+    LINE2D(P3, rX[2], rY[2], rX[3], rY[3], 103)
+    LINE2D(P4, rX[3], rY[3], rX[4], rY[4], 104)
+    LINE2D(P5, rX[4], rY[4], rX[5], rY[5], 105)
+    LINE2D(P6, rX[5], rY[5], rX[6], rY[6], 106)
+    LINE2D(P7, rX[6], rY[6], rX[7], rY[7], 107)
+    LINE2D(P8, rX[7], rY[7], rX[8], rY[8], 108)
+    LINE2D(P9, rX[8], rY[8], rX[0], rY[0], 109)
+    
+    real l = radius*sqrt(2*(1-cos(2*pi/n)));
+    int nGrid1 = isHole?-l*nGrid0:l*nGrid0;
+    mesh Th = buildmesh(C01(nGrid0)+C02(nGrid0)+C03(nGrid0)+C04(nGrid0)
+                       +P1(nGrid1)+P2(nGrid1)+P3(nGrid1)+P4(nGrid1)+P5(nGrid1)+P6(nGrid1)+P7(nGrid1)+P8(nGrid1)+P9(nGrid1));
+    return Th;
+}
+
+func mesh CRegularPolygon10(real radius, real initialPhase, int nGrid0, bool isHole)
+{
+	// Outer boundary
+	RECT2D(C01, C02, C03, C04, 0, 0, 1, 1, 1, 2, 3, 4)
+    
+    int n = 10;
+	real[int] rX(n), rY(n);
+    for(int i = 0; i < n; i++)
+    {
+    	rX[i] = 0.5 + radius*cos(2*pi/n*i + initialPhase);
+	    rY[i] = 0.5 + radius*sin(2*pi/n*i + initialPhase);
+    }
+    
+    LINE2D(P1, rX[0], rY[0], rX[1], rY[1], 101)
+    LINE2D(P2, rX[1], rY[1], rX[2], rY[2], 102)
+    LINE2D(P3, rX[2], rY[2], rX[3], rY[3], 103)
+    LINE2D(P4, rX[3], rY[3], rX[4], rY[4], 104)
+    LINE2D(P5, rX[4], rY[4], rX[5], rY[5], 105)
+    LINE2D(P6, rX[5], rY[5], rX[6], rY[6], 106)
+    LINE2D(P7, rX[6], rY[6], rX[7], rY[7], 107)
+    LINE2D(P8, rX[7], rY[7], rX[8], rY[8], 108)
+    LINE2D(P9, rX[8], rY[8], rX[9], rY[9], 109)
+    LINE2D(P10, rX[9], rY[9], rX[0], rY[0], 110)
+    
+    real l = radius*sqrt(2*(1-cos(2*pi/n)));
+    int nGrid1 = isHole?-l*nGrid0:l*nGrid0;
+    mesh Th = buildmesh(C01(nGrid0)+C02(nGrid0)+C03(nGrid0)+C04(nGrid0)
+                       +P1(nGrid1)+P2(nGrid1)+P3(nGrid1)+P4(nGrid1)+P5(nGrid1)+P6(nGrid1)+P7(nGrid1)+P8(nGrid1)+P9(nGrid1)+P10(nGrid1));
+    return Th;
+}
+
+func mesh HRectangle(real originX, real originY,
+                     real width, real height, 
+                     int nGrid1, int nGrid2)
+{	
+	RECT2D(C01, C02, C03, C04, originX, originY, width, height, 1, 2, 3, 4)
+	mesh Th = buildmesh(C01(nGrid1)+C02(nGrid2)+C03(nGrid1)+C04(nGrid2));
+    return Th;
+}
+
+func mesh extendXY(mesh BasicTh, int n, int m, real thWidth, real thHeight)
+{
+	mesh Th0 = BasicTh;
+	int[int] L1 = [2, 0], L2 = [4, 0];
+    for(int i = 1; i < n; i++)
+    {
+	    mesh Th1 = movemesh(BasicTh, [x+i*thWidth, y]);
+	    Th0 = change(Th0, label = L1);
+	    Th1 = change(Th1, label = L2);
+	    Th0 = Th0 +Th1;
+    }
+	 
+	 mesh ThTemp = Th0;
+	 L1[0] = 3; L2[0] = 1;
+     for(int i=1; i < m; i++)
+     {
+		 mesh Th1 = movemesh(ThTemp, [x, y+i*thHeight]);
+		 Th0 = change(Th0, label = L1);
+		 Th1 = change(Th1, label = L2);
+		 Th0 = Th0 +Th1;
+     }
+    return Th0;	
+}
+
+func mesh MRectangle(int m, int n, 
+                     int nGrid0,
+                     real M2x,real M2y,
+                     real M2Width,real M2Height,
+                     int isHole)
+{
+	mesh BasicTh = CEllipse(0.5, 0.5, 0.3, 0.3, pi/4, nGrid0, isHole);
+    return extendXY(BasicTh, m, n, 1, 1);
+}
+
+func mesh MTriangle(int m, int n, int nGrid0, real L, real tx, real ty, int isHole)
+{
+	mesh BasicTh = CTriangle(L, tx, ty, nGrid0, isHole);
+    return extendXY(BasicTh, m, n, 1, 1);
+}
+
+func mesh MacroMeshRectangle(int n, int nGrid0, real M2x,real M2y,real M2Width,real M2Height,int isHole)
+{
+	mesh Th = MRectangle(n, n, nGrid0, M2x, M2y, M2Width, M2Height, isHole);
+    Th = movemesh(Th, [1./n*x, 1./n*y]);
+	return Th;
+}
+
+func mesh MEllipse(int m, int n, 
+                  int nGrid0, 
+                  real rx, real ry,
+                  real a, real b,
+                  real angle, 
+                  int isHole)
+{
+	mesh BasicTh = CEllipse(rx, ry, a, b, angle, nGrid0, isHole);
+    return extendXY(BasicTh, m, n, 1, 1);
+}
+/*int n = 8;
+mesh MacroTh = MEllipse(n, n, 30, 0.5, 0.5, 0.3, 0.3, 0, 0);
+plot(MacroTh, wait=true, fill=false, cmm="2");*/
+
+func mesh MDiamond(int m, int n, 
+                   int nGrid0, 
+                   real a, real b, 
+                   int isHole)
+{
+	mesh BasicTh = CDiamond(a, b, nGrid0, isHole);
+    return extendXY(BasicTh, m, n, 1, 1);
+}
+//mesh MacroTh3 = MDiamond(n, n, 30, 0.3, 0.3, 0);
+//plot(MacroTh3, wait=true, fill=false, cmm="3");
+func mesh MRectangleHoleCompo(int m, int n, 
+                              int nGrid0,
+                              real M1x, real M1y,
+                              real M1Width, real M1Height,
+                              real M2x, real M2y,
+                              real M2Width, real M2Height
+                              )
+{
+	mesh BasicTh = CRectangleHoleCompo(M1x, M1y, M1Width, M1Height,
+	                                   M2x, M2y, M2Width, M2Height,
+	                                   nGrid0);
+    return extendXY(BasicTh, m, n, 1, 1);              
+}
+
+func mesh MLayeredY(int nx, int ny, real ratio, int nGrid)
+{   mesh BasicTh = CLayeredY(ratio, nGrid);
+    mesh MacroTh = extendXY(BasicTh, nx, ny, 1.0, 1.0);   
+    return MacroTh;
+}
+
+/*int numX = 8;        
+int numY = 8;        
+real ratio = 0.3;    
+int nGrid = 10;      
+mesh MacroMesh = MLayeredY(numX, numY, ratio, nGrid);
+plot(MacroMesh, wait=true, fill=true, cmm="Macro Layered Material (" + numX + "x" + numY + ")");*/

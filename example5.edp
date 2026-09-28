@@ -1,0 +1,395 @@
+// Example 5: domain (0,10)x(0,10)x(0,2), physical epsilon=1/6.
+// Run from this directory: FreeFem++.exe example5.edp -nw
+include "MeshFunc3D.edp"
+load "iovtk"
+verbosity = 0;
+real Lx = 10.0, Ly = 10.0, Lz = 2.0;
+real epsilon = 1.0/4.0;
+real T = 0.255, dt = 0.005;
+int Nt = T/dt;
+real tsigma = 0.0;
+int outputStep = 50; // Zero based: t_sigma=0.28875.
+// Material/source values retained from example4; edit here.
+real rhom = 20.0, rhoi = 1.0;
+real am = 1000.0, ai = 50.0;
+real mum = 50.0, mui = 0.5;
+func fsource = 600.0;
+// A variable source may use x/Lx, y/Ly, z/Lz and tsigma.
+// Macro P2 mesh h=0.1. Refine these counts for a mesh study.
+int macroNx = 40, macroNy = 40, macroNz = 8;
+
+int reconPerCell = 4;
+int blockCellsX = 6, blockCellsY = 6, blockCellsZ = 6;
+string outputPrefix = "example5";
+int[int] vtkOrderMulti = [1,1,1];
+assert(Lx>0 && Ly>0 && Lz>0 && epsilon>0 && dt>0 && Nt>0);
+assert(outputStep>=0 && outputStep<Nt);
+assert(macroNx>0 && macroNy>0 && macroNz>0);
+assert(reconPerCell>=4 && reconPerCell%4==0);
+assert(blockCellsX>0 && blockCellsY>0 && blockCellsZ>0);
+int cellsX = round(Lx/epsilon);
+int cellsY = round(Ly/epsilon);
+int cellsZ = round(Lz/epsilon);
+assert(abs(cellsX*epsilon-Lx)<1.e-10);
+assert(abs(cellsY*epsilon-Ly)<1.e-10);
+assert(abs(cellsZ*epsilon-Lz)<1.e-10);
+// Box arguments sx/sy/sz are lengths, including for translated blocks.
+// Labels match HCube: x=1/2, y=3/4, z bottom/top=6/5.
+func mesh3 Example5Box(real ox, real oy, real oz,
+                      real sx, real sy, real sz, int nx, int ny, int nz)
+{
+    mesh base = square(nx,ny,[ox+sx*x,oy+sy*y]);
+    int[int] rup=[0,5], rdown=[0,6], rmid=[1,3,2,2,3,4,4,1];
+    mesh3 box = buildlayers(base,nz,zbound=[oz,oz+sz],
+                           labelmid=rmid,labelup=rup,labeldown=rdown);
+    return box;
+}
+cout << "Domain: " << Lx << " x " << Ly << " x " << Lz << endl;
+cout << "epsilon=" << epsilon << "; cells="
+     << cellsX << " x " << cellsY << " x " << cellsZ << endl;
+// Cell solves retain example4's zero Dirichlet boundary conditions.
+
+int cellGrid = 8;
+mesh3 CellTh = HCube(cellGrid);
+
+// Retain example4 cell boundary conditions.
+fespace CellVh(CellTh, P1);
+
+CellVh N1, N2, N3, vcell;
+CellVh F, G;
+CellVh N11, N22, N33, N12, N13, N23, N21, N31, N32;
+
+func chiCell = (x>=0.25)*(x<=0.75)
+             *(y>=0.25)*(y<=0.75)
+             *(z>=0.25)*(z<=0.75);
+func rho = rhom*(1.0-chiCell) + rhoi*chiCell;
+func aeps = am*(1.0-chiCell) + ai*chiCell;
+func mufrac = mum*(1.0-chiCell) + mui*chiCell;
+
+varf CellBilinear(ucell, qcell) =
+      int3d(CellTh)(aeps*(dx(ucell)*dx(qcell)+dy(ucell)*dy(qcell)+dz(ucell)*dz(qcell)))
+    + on(1,2,3,4,5,6, ucell=0);
+matrix CellMat = CellBilinear(CellVh, CellVh, solver=sparsesolver);
+set(CellMat, solver=sparsesolver);
+
+varf CellRhsN1(dummy, qcell) =
+    -int3d(CellTh)(aeps*dx(qcell)) + on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN2(dummy, qcell) =
+    -int3d(CellTh)(aeps*dy(qcell)) + on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN3(dummy, qcell) =
+    -int3d(CellTh)(aeps*dz(qcell)) + on(1,2,3,4,5,6, dummy=0);
+
+real[int] cellRhs = CellRhsN1(0, CellVh);
+N1[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN2(0, CellVh);
+N2[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN3(0, CellVh);
+N3[] = CellMat^-1*cellRhs;
+
+real areaY = int3d(CellTh)(1.0);
+real rhohat = int3d(CellTh)(rho)/areaY;
+real muhat = int3d(CellTh)(mufrac)/areaY;
+
+real ahat11 = int3d(CellTh)(aeps*(1.0+dx(N1)))/areaY;
+real ahat22 = int3d(CellTh)(aeps*(1.0+dy(N2)))/areaY;
+real ahat33 = int3d(CellTh)(aeps*(1.0+dz(N3)))/areaY;
+real ahat12 = int3d(CellTh)(aeps*dx(N2))/areaY;
+real ahat13 = int3d(CellTh)(aeps*dx(N3))/areaY;
+real ahat21 = int3d(CellTh)(aeps*dy(N1))/areaY;
+real ahat23 = int3d(CellTh)(aeps*dy(N3))/areaY;
+real ahat31 = int3d(CellTh)(aeps*dz(N1))/areaY;
+real ahat32 = int3d(CellTh)(aeps*dz(N2))/areaY;
+
+varf CellRhsF(dummy, qcell) =
+    -int3d(CellTh)((rho-rhohat)*qcell)
+    +on(1,2,3,4,5,6, dummy=0);
+varf CellRhsG(dummy, qcell) =
+    -int3d(CellTh)((mufrac-muhat)*qcell)
+    +on(1,2,3,4,5,6, dummy=0);
+
+varf CellRhsN11(dummy, qcell) =
+      -int3d(CellTh)((ahat11-aeps)*qcell)
+      -int3d(CellTh)(aeps*N1*dx(qcell))
+      +int3d(CellTh)(aeps*dx(N1)*qcell)
+      +on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN22(dummy, qcell) =
+      -int3d(CellTh)((ahat22-aeps)*qcell)
+      -int3d(CellTh)(aeps*N2*dy(qcell))
+      +int3d(CellTh)(aeps*dy(N2)*qcell)
+      +on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN33(dummy, qcell) =
+      -int3d(CellTh)((ahat33-aeps)*qcell)
+      -int3d(CellTh)(aeps*N3*dz(qcell))
+      +int3d(CellTh)(aeps*dz(N3)*qcell)
+      +on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN12(dummy, qcell) =
+      -int3d(CellTh)(ahat12*qcell)
+      -int3d(CellTh)(aeps*N2*dx(qcell))
+      +int3d(CellTh)(aeps*dx(N2)*qcell)
+      +on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN13(dummy, qcell) =
+      -int3d(CellTh)(ahat13*qcell)
+      -int3d(CellTh)(aeps*N3*dx(qcell))
+      +int3d(CellTh)(aeps*dx(N3)*qcell)
+      +on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN23(dummy, qcell) =
+      -int3d(CellTh)(ahat23*qcell)
+      -int3d(CellTh)(aeps*N3*dy(qcell))
+      +int3d(CellTh)(aeps*dy(N3)*qcell)
+      +on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN21(dummy, qcell) =
+      -int3d(CellTh)(ahat21*qcell)
+      -int3d(CellTh)(aeps*N1*dy(qcell))
+      +int3d(CellTh)(aeps*dy(N1)*qcell)
+      +on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN31(dummy, qcell) =
+      -int3d(CellTh)(ahat31*qcell)
+      -int3d(CellTh)(aeps*N1*dz(qcell))
+      +int3d(CellTh)(aeps*dz(N1)*qcell)
+      +on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN32(dummy, qcell) =
+      -int3d(CellTh)(ahat32*qcell)
+      -int3d(CellTh)(aeps*N2*dz(qcell))
+      +int3d(CellTh)(aeps*dz(N2)*qcell)
+      +on(1,2,3,4,5,6, dummy=0);
+
+cellRhs = CellRhsF(0, CellVh);   F[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsG(0, CellVh);   G[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN11(0, CellVh); N11[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN22(0, CellVh); N22[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN33(0, CellVh); N33[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN12(0, CellVh); N12[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN13(0, CellVh); N13[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN23(0, CellVh); N23[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN21(0, CellVh); N21[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN31(0, CellVh); N31[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN32(0, CellVh); N32[] = CellMat^-1*cellRhs;
+
+mesh3 HomoTh = Example5Box(0,0,0,Lx,Ly,Lz,macroNx,macroNy,macroNz);
+assert(abs(int3d(HomoTh)(1.0)-Lx*Ly*Lz)<1.e-7);
+cout << "Macro elements=" << HomoTh.nt << "; vertices=" << HomoTh.nv << endl;
+fespace HomoVh(HomoTh, P2);
+
+real gammanm = 0.6;
+real betanm = 0.25*(gammanm+0.5)^2;
+real c0 = 1.0/(betanm*dt*dt);
+real c1 = 1.0/(betanm*dt);
+real c2 = 1.0/(2.0*betanm)-1.0;
+real c3 = dt*gammanm*c0;
+
+real betafrac = 0.5;
+real sigma = 1.0-betafrac/2.0;
+real Gamma2beta = 0.8862269;
+real Cbeta = dt^(-betafrac)/Gamma2beta;
+
+real[int] A(Nt+2), B(Nt+2);
+A[0] = sigma^(1.0-betafrac);
+B[0] = 0.0;
+for (int k=1; k<=Nt+1; k++) {
+    A[k] = (k+sigma)^(1.0-betafrac)-(k-1.0+sigma)^(1.0-betafrac);
+    B[k] = ((k+sigma)^(2.0-betafrac)-(k-1.0+sigma)^(2.0-betafrac))/(2.0-betafrac)
+         - 0.5*((k+sigma)^(1.0-betafrac)+(k-1.0+sigma)^(1.0-betafrac));
+}
+// L2-1_sigma newest-increment weight:
+// the exceptional first step must use C_0^(1)=A_0;
+// only the subsequent steps use C_0^(n+1)=A_0+B_1 (n>=1).
+real cnn = A[0];
+
+HomoVh unp1, vtest;
+HomoVh un=0.0, vn=0.0, an;
+HomoVh apred, vpred, HistorySumV;
+HomoVh anp1, vnp1, uSigma, aSigma, fracDv;
+HomoVh[int] Vhist(Nt+1);
+for (int i=0; i<=Nt; i++) Vhist[i] = 0.0;
+problem InitAccel(an, vtest, solver=CG, eps=1.e-10, nbiter=10000) =
+      int3d(HomoTh)(rhohat*an*vtest)
+    - int3d(HomoTh)(
+          fsource*vtest
+        - ahat11*dx(un)*dx(vtest)
+        - ahat22*dy(un)*dy(vtest)
+        - ahat33*dz(un)*dz(vtest)
+        - ahat12*dy(un)*dx(vtest)
+        - ahat13*dz(un)*dx(vtest)
+        - ahat21*dx(un)*dy(vtest)
+        - ahat23*dz(un)*dy(vtest)
+        - ahat31*dx(un)*dz(vtest)
+        - ahat32*dy(un)*dz(vtest)
+      )
+    + on(1,2,3,4, an=0);
+
+InitAccel;
+
+varf MacroBilinear(umacro, qmacro) =
+      int3d(HomoTh)(
+          (rhohat*sigma*c0+muhat*Cbeta*cnn*c3)*umacro*qmacro
+        + sigma*(
+              ahat11*dx(umacro)*dx(qmacro)
+            + ahat22*dy(umacro)*dy(qmacro)
+            + ahat33*dz(umacro)*dz(qmacro)
+            + ahat12*dy(umacro)*dx(qmacro)
+            + ahat13*dz(umacro)*dx(qmacro)
+            + ahat21*dx(umacro)*dy(qmacro)
+            + ahat23*dz(umacro)*dy(qmacro)
+            + ahat31*dx(umacro)*dz(qmacro)
+            + ahat32*dy(umacro)*dz(qmacro)
+          )
+      )
+    + on(1,2,3,4, umacro=0);
+
+matrix MacroMat = MacroBilinear(HomoVh, HomoVh);
+
+set(MacroMat, solver=CG, eps=1.e-10, nbiter=10000);
+
+varf MacroRight(dummy, qmacro) =
+      int3d(HomoTh)(
+          fsource*qmacro
+        - rhohat*(sigma*apred+(1.0-sigma)*an)*qmacro
+        - muhat*Cbeta*(cnn*(vpred-vn)+HistorySumV)*qmacro
+        - (1.0-sigma)*(
+              ahat11*dx(un)*dx(qmacro)
+            + ahat22*dy(un)*dy(qmacro)
+            + ahat33*dz(un)*dz(qmacro)
+            + ahat12*dy(un)*dx(qmacro)
+            + ahat13*dz(un)*dx(qmacro)
+            + ahat21*dx(un)*dy(qmacro)
+            + ahat23*dz(un)*dy(qmacro)
+            + ahat31*dx(un)*dz(qmacro)
+            + ahat32*dy(un)*dz(qmacro)
+          )
+      )
+    + on(1,2,3,4, dummy=0);                   
+
+real[int] macroRhs(HomoVh.ndof);
+
+// Physical fast coordinates: DO NOT divide by domain side lengths.
+func cellX = x/epsilon-floor(x/epsilon);
+func cellY = y/epsilon-floor(y/epsilon);
+func cellZ = z/epsilon-floor(z/epsilon);
+for(int step=0; step<Nt; step++)
+{
+    tsigma=(step+sigma)*dt;
+    cnn=(step==0) ? A[0] : (A[0]+B[1]);
+    // Reassemble once when the newest-history weight changes.
+    if(step==1)
+    {
+        MacroMat=MacroBilinear(HomoVh,HomoVh);
+        set(MacroMat,solver=CG,eps=1.e-10,nbiter=10000);
+    }
+    apred=-c0*un-c1*vn-c2*an;
+
+    vpred=vn
+         +dt*(1.0-gammanm)*an
+         +dt*gammanm*apred;
+
+    HistorySumV=0.0;
+
+    if(step>0)
+    {
+        real c0n=A[step]-B[step];
+
+        HistorySumV=
+            HistorySumV
+           +c0n*(Vhist[1]-Vhist[0]);
+
+        for(int j=1;j<step;j++)
+        {
+            real cjn=
+                  A[step-j]
+                + B[step-j+1]
+                - B[step-j];
+
+            HistorySumV=
+                HistorySumV
+               +cjn*(Vhist[j+1]-Vhist[j]);
+        }
+    }
+
+    macroRhs=MacroRight(0,HomoVh);
+    unp1[]=MacroMat^-1*macroRhs;
+
+    anp1=c0*unp1+apred;
+    vnp1=c3*unp1+vpred;
+
+    uSigma=sigma*unp1+(1.0-sigma)*un;
+    aSigma=sigma*anp1+(1.0-sigma)*an;
+
+    fracDv=Cbeta*(
+          cnn*(vnp1-vn)
+        + HistorySumV
+    );
+
+    // History storage and state update belong to macro solve
+    Vhist[step+1]=vnp1;
+
+    un=unp1;
+    vn=vnp1;
+    an=anp1;
+
+    if(step==outputStep)
+    {
+        // All spatial parts are grouped at the same physical time.
+        ofstream collection(outputPrefix+"_solutions.pvd");
+        collection.precision(16);
+        collection << "<?xml version=\"1.0\"?>" << endl
+                   << "<VTKFile type=\"Collection\" version=\"0.1\" byte_order=\"LittleEndian\">" << endl
+                   << "<Collection>" << endl;
+        int part=0;
+        for(int iz=0; iz<cellsZ; iz+=blockCellsZ)
+        for(int iy=0; iy<cellsY; iy+=blockCellsY)
+        for(int ix=0; ix<cellsX; ix+=blockCellsX)
+        {
+            int bx=min(blockCellsX,cellsX-ix);
+            int by=min(blockCellsY,cellsY-iy);
+            int bz=min(blockCellsZ,cellsZ-iz);
+            mesh3 ReconTh=Example5Box(ix*epsilon,iy*epsilon,iz*epsilon,
+                 bx*epsilon,by*epsilon,bz*epsilon,
+                 bx*reconPerCell,by*reconPerCell,bz*reconPerCell);
+            fespace ReconVh(ReconTh,P1);
+            ReconVh U0=uSigma, U1, U2;
+            ReconVh N1Map=N1(cellX,cellY,cellZ);
+            ReconVh N2Map=N2(cellX,cellY,cellZ);
+            ReconVh N3Map=N3(cellX,cellY,cellZ);
+            ReconVh N11Map=N11(cellX,cellY,cellZ);
+            ReconVh N22Map=N22(cellX,cellY,cellZ);
+            ReconVh N33Map=N33(cellX,cellY,cellZ);
+            ReconVh N12Map=N12(cellX,cellY,cellZ);
+            ReconVh N13Map=N13(cellX,cellY,cellZ);
+            ReconVh N23Map=N23(cellX,cellY,cellZ);
+            ReconVh N21Map=N21(cellX,cellY,cellZ);
+            ReconVh N31Map=N31(cellX,cellY,cellZ);
+            ReconVh N32Map=N32(cellX,cellY,cellZ);
+            ReconVh FMap=F(cellX,cellY,cellZ);
+            ReconVh GMap=G(cellX,cellY,cellZ);
+            U1=U0+epsilon*(N1Map*dx(uSigma)
+                         +N2Map*dy(uSigma)+N3Map*dz(uSigma));
+            U2=U1+epsilon^2*(
+                 N11Map*dxx(uSigma)+N22Map*dyy(uSigma)+N33Map*dzz(uSigma)
+                +(N12Map+N21Map)*dxy(uSigma)
+                +(N13Map+N31Map)*dxz(uSigma)
+                +(N23Map+N32Map)*dyz(uSigma)
+                +FMap*aSigma+GMap*fracDv);
+            string partFile=outputPrefix+"_solutions_part"+part+".vtu";
+            savevtk(partFile,ReconTh,U0,U1,U2,
+                    dataname="U0 U1 U2",order=vtkOrderMulti);
+            collection << "<DataSet timestep=\"" << tsigma
+                       << "\" group=\"\" part=\"" << part
+                       << "\" file=\"" << partFile << "\"/>" << endl;
+            part++;
+            if(part%10==0) cout << "Saved blocks: " << part << endl;
+        }
+        collection << "</Collection>" << endl << "</VTKFile>" << endl;
+        cout << "Saved U0, U1, U2 at t_sigma=" << tsigma
+             << " in " << part << " blocks." << endl;
+    }
+    if((step+1)%10==0 || step==0 || step==Nt-1)
+        cout << "Step " << step+1 << "/" << Nt << ", t_sigma=" << tsigma << endl;
+}
+cout << "Completed. Open " << outputPrefix+"_solutions.pvd" << " in ParaView." << endl;
+cout << endl;
+cout << "=======================================================" << endl;
+cout << "======       Mesh & DoF Information Summary      ======" << endl;
+cout << "                    Cell          Macro (Homo)" << endl;
+cout << "Elements            " << CellTh.nt << "           " << HomoTh.nt << endl;
+cout << "Nodes               " << CellTh.nv << "           " << HomoTh.nv << endl;
+cout << "Degrees of Freedom  " << CellVh.ndof << "         " << HomoVh.ndof << endl;
+cout << "=======================================================" << endl;

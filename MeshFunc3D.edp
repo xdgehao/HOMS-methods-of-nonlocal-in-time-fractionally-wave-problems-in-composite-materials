@@ -1,0 +1,1381 @@
+//MeshFunc3D.edp
+//FreeFem++的三维网格生成函数文�?
+load "msh3"
+load "tetgen"
+load "medit"
+load "freeyams"
+
+//tetg会抹除编号？目前尚不明确
+//===========================================================================================
+//三维六面体表面生成函�?
+func meshS SurfaceHex(int[int] & N, real[int,int] &B, int[int,int] & L, int orientation)
+{
+    real x0=B(0,0), x1=B(0,1);// 获取 X 轴范�?
+    real y0=B(1,0), y1=B(1,1);
+    real z0=B(2,0), z1=B(2,1);
+    
+    int nx=N[0], ny=N[1], nz=N[2];// 获取各方向的网格剖分数量
+    
+    // 生成各个面的基础二维网格
+    mesh Thx = square(ny,nz,[y0+(y1-y0)*x,z0+(z1-z0)*y]);
+    mesh Thy = square(nx,nz,[x0+(x1-x0)*x,z0+(z1-z0)*y]);
+    mesh Thz = square(nx,ny,[x0+(x1-x0)*x,y0+(y1-y0)*y]);
+    
+    int[int] refx=[0,L(0,0)], refX=[0,L(0,1)];   //  Xmin, Xmax 面的边界编号重置
+    int[int] refy=[0,L(1,0)], refY=[0,L(1,1)];   //  Ymin, Ymax 面的边界编号重置
+    int[int] refz=[0,L(2,0)], refZ=[0,L(2,1)];   //  Zmin, Zmax 面的边界编号重置
+    
+    // movemesh23 会将 2D mesh 映射到三维空间，并返�? meshS 类型
+    meshS Thx0 = movemesh23(Thx,transfo=[x0,x,y],orientation=-orientation,label=refx); 
+    meshS Thx1 = movemesh23(Thx,transfo=[x1,x,y],orientation=+orientation,label=refX);
+    meshS Thy0 = movemesh23(Thy,transfo=[x,y0,y],orientation=+orientation,label=refy);
+    meshS Thy1 = movemesh23(Thy,transfo=[x,y1,y],orientation=-orientation,label=refY);
+    meshS Thz0 = movemesh23(Thz,transfo=[x,y,z0],orientation=-orientation,label=refz);
+    meshS Thz1 = movemesh23(Thz,transfo=[x,y,z1],orientation=+orientation,label=refZ);
+    
+
+    // �? 6 个表面网格拼接在一起构成一个封闭表�?
+    meshS Th = Thx0 + Thx1 + Thy0 + Thy1 + Thz0 + Thz1;
+    return Th;
+}
+//func mesh3 UnitSurfaceHex(int nGrid, int orientation)
+//单位立面体表面生成函�?
+//各表面编号依次如下：
+//  后表�? x = 0 -- 1
+//  前表�? x = 1 -- 2
+//  左表�? y = 0 -- 3
+//  右表�? y = 1 -- 4
+//  下表�? z = 0 -- 5
+//  上表�? z = 1 -- 6
+//参数说明�?
+// nGrid -- 立方体各条边划分段数
+// orientation -- 方向，取�?1
+
+func meshS UnitSurfaceHex(int nGrid, int orientation)
+{
+    // 生成基础的二维单位网�? (0 �? 1)
+    mesh Thx = square(nGrid,nGrid);
+    mesh Thy = square(nGrid,nGrid);
+    mesh Thz = square(nGrid,nGrid);
+    
+    int[int] refx=[0,1], refX=[0,2];   //  Xmin, Xmax 面边界编号重�?
+    int[int] refy=[0,3], refY=[0,4];   //  Ymin, Ymax 面边界编号重�?
+    int[int] refz=[0,5], refZ=[0,6];   //  Zmin, Zmax 面边界编号重�?
+    
+    // 使用 movemesh23 将二维网格映射到三维空间的各个表面，并声明为 meshS 类型
+    meshS Thx0 = movemesh23(Thx,transfo=[0,x,y],orientation=-orientation,label=refx); 
+    meshS Thx1 = movemesh23(Thx,transfo=[1,x,y],orientation=+orientation,label=refX);
+    meshS Thy0 = movemesh23(Thy,transfo=[x,0,y],orientation=+orientation,label=refy);
+    meshS Thy1 = movemesh23(Thy,transfo=[x,1,y],orientation=-orientation,label=refY);
+    meshS Thz0 = movemesh23(Thz,transfo=[x,y,0],orientation=-orientation,label=refz);
+    meshS Thz1 = movemesh23(Thz,transfo=[x,y,1],orientation=+orientation,label=refZ);
+    
+    // 缝合 6 个面
+    meshS Th = Thx0 + Thx1 + Thy0 + Thy1 + Thz0 + Thz1;
+    return Th;
+}
+
+//func mesh3 UnitSurfaceHexV2(int nGrid, int orientation)
+//单位立面体表面生成函�?
+//所有面编号均为0
+//参数说明�?
+// nGrid -- 立方体各条边划分段数
+// orientation -- 方向，取�?1
+func meshS UnitSurfaceHexV2(int nGrid, int orientation)
+{
+    mesh Thx = square(nGrid,nGrid);
+    mesh Thy = square(nGrid,nGrid);
+    mesh Thz = square(nGrid,nGrid);
+    
+    meshS Thx0 = movemesh23(Thx,transfo=[0,x,y],orientation=-orientation); 
+    meshS Thx1 = movemesh23(Thx,transfo=[1,x,y],orientation=+orientation);
+    meshS Thy0 = movemesh23(Thy,transfo=[x,0,y],orientation=+orientation);
+    meshS Thy1 = movemesh23(Thy,transfo=[x,1,y],orientation=-orientation);
+    meshS Thz0 = movemesh23(Thz,transfo=[x,y,0],orientation=-orientation);
+    meshS Thz1 = movemesh23(Thz,transfo=[x,y,1],orientation=+orientation);
+    meshS Th= Thx0+Thx1+Thy0+Thy1+Thz0+Thz1;
+    return Th;
+}
+
+//长方体框架表面，该长方体�? (cx, cy, cz) 为起始点�?
+//�? $X, Y, Z$ 三个方向的长度分别为 lenX, lenY, lenZ
+func meshS CuboidFace(real cx, real cy, real cz, real lenX, real lenY, real lenZ, int nGrid, int orientation)
+{
+    int gridX = nGrid*lenX;
+    int gridY = nGrid*lenY;
+    int gridZ = nGrid*lenZ;
+    
+    // 生成基础的二维平面网�?
+    mesh ThX = square(gridY, gridZ, [cy + lenY*x, cz + lenZ*y]);
+    mesh ThY = square(gridX, gridZ, [cx + lenX*x, cz + lenZ*y]);
+    mesh ThZ = square(gridX, gridY, [cx + lenX*x, cy + lenY*y]);
+    
+    int[int] refx=[0,1], refX=[0,2];   //  Xmin, Xmax 面边界编号重�?
+    int[int] refy=[0,3], refY=[0,4];   //  Ymin, Ymax 面边界编号重�?
+    int[int] refz=[0,5], refZ=[0,6];   //  Zmin, Zmax 面边界编号重�?
+    
+    // 使用 movemesh23 将二维网格映射到长方体的六个面，并声明为 meshS 类型
+    meshS ThBack = movemesh23(ThX, transfo = [cx, x, y], orientation=-orientation, label=refx);
+    meshS ThFron = movemesh23(ThX, transfo = [cx + lenX, x, y], orientation=+orientation, label=refX);
+    meshS ThLeft = movemesh23(ThY, transfo = [x, cy, y], orientation=+orientation, label=refy);
+    meshS ThRigh = movemesh23(ThY, transfo = [x, cy + lenY, y], orientation=-orientation, label=refY);
+    meshS ThButm = movemesh23(ThZ, transfo = [x, y, cz], orientation=-orientation, label=refz);
+    meshS ThCeil = movemesh23(ThZ, transfo = [x, y, cz + lenZ], orientation=+orientation, label=refZ);
+    
+    // 缝合组装�? 6 个面
+    meshS Th = ThBack + ThFron + ThLeft + ThRigh + ThButm + ThCeil;
+    return Th;
+}
+
+func meshS CuboidFaceV2(real cx, real cy, real cz, real lenX, real lenY, real lenZ, int nGrid, int orientation)
+{
+	int gridX = nGrid*lenX;
+	int gridY = nGrid*lenY;
+	int gridZ = nGrid*lenZ;
+	mesh ThX = square(gridY, gridZ, [cy + lenY*x, cz + lenZ*y]);
+	mesh ThY = square(gridX, gridZ, [cx + lenX*x, cz + lenZ*y]);
+	mesh ThZ = square(gridX, gridY, [cx + lenX*x, cy + lenY*y]);
+	
+	meshS ThBack = movemesh23(ThX, transfo = [cx, x, y], orientation=-orientation);
+	meshS ThFron = movemesh23(ThX, transfo = [cx + lenX, x, y], orientation=+orientation);
+	meshS ThLeft = movemesh23(ThY, transfo = [x, cy, y], orientation=+orientation);
+	meshS ThRigh = movemesh23(ThY, transfo = [x, cy + lenY, y], orientation=-orientation);
+	meshS ThButm = movemesh23(ThZ, transfo = [x, y, cz], orientation=-orientation);
+	meshS ThCeil = movemesh23(ThZ, transfo = [x, y, cz + lenZ], orientation=+orientation);
+	
+	meshS Th = ThBack + ThFron + ThLeft + ThRigh + ThButm + ThCeil;
+	return Th;
+}
+
+//mesh3 CubeFace = UnitSurfaceHexV2(20, 1);
+//CubeFace = freeyams(CubeFace, hmax = 3./40);
+//plot(CubeFace, wait=1);
+
+//func mesh3 Sphere(real rx, real ry, real rz, real R,real h,int L,int orientation)
+//球体表面生成函数
+//参数说明�?
+//   rx -- 球心x坐标
+//   ry -- 球心y坐标
+//   rz -- 球心z坐标
+//   R -- 球半�?
+//   h -- 调整球面网格尺寸取为0.01--0.1
+//   L -- 球面网格编号
+//   orientation -- 方向，取�?1
+func meshS Sphere(real rx, real ry, real rz, real R, real h, int L, int orientation)
+{
+    mesh Th=square(50,100,[x*pi-pi/2,2*y*pi]);  //  [-pi/2,pi/2]x[0,2*pi]
+    
+    //  a parametrization of a sphere 
+    func f1 = cos(x)*cos(y);
+    func f2 = cos(x)*sin(y);
+    func f3 = sin(x);
+    
+    //  partiel derivative 
+    func f1x = -sin(x)*cos(y);   
+    func f2x = -sin(x)*sin(y);
+    func f2y = cos(x)*cos(y);
+    func f3x = cos(x);
+    func f3y = 0;
+    func f1y = -cos(x)*sin(y);
+
+    // the metric on the sphere  $ M = DF^t DF $
+    //度量张量矩阵
+    func m11 = f1x^2+f2x^2+f3x^2;
+    func m21 = f1x*f1y+f2x*f2y+f3x*f3y;
+    func m22 = f1y^2+f2y^2+f3y^2;
+  
+    func perio=[[4,y],[2,y],[1,x],[3,x]];  // to store the periodic condition 
+  
+    real hh=h/R; // hh  mesh size on unite sphere
+    real vv= 1/(hh*hh);
+    
+    // 多次自适应网格细化，使二维网格在映射到球面时保持均匀
+    Th=adaptmesh(Th,m11*vv,m21*vv,m22*vv,IsMetric=1,periodic=perio);
+    Th=adaptmesh(Th,m11*vv,m21*vv,m22*vv,IsMetric=1,periodic=perio);
+    Th=adaptmesh(Th,m11*vv,m21*vv,m22*vv,IsMetric=1,periodic=perio);
+    Th=adaptmesh(Th,m11*vv,m21*vv,m22*vv,IsMetric=1,periodic=perio);
+    
+    int[int] ref=[0,L];  
+ 
+    meshS ThS = movemesh23(Th,transfo=[f1*R+rx,f2*R+ry,f3*R+rz],orientation=orientation,label=ref);
+    return ThS;
+}
+
+//func mesh3 SphereV2(real rx, real ry, real rz, real R, int refNum, int nGrid)
+//球体表面生成函数，利用freeyams函数
+//参数说明�?
+//   rx -- 球心x坐标
+//   ry -- 球心y坐标
+//   rz -- 球心z坐标
+//   R -- 球半�?
+//   refNum -- 球面网格编号
+//   nGrid -- 网格划分段数
+/*下面的函数在freefem-cs25.6版本中报错，此时freefem版本�?4.6*/
+/*func mesh3 SphereV2(real rx, real ry, real rz, real R, int refNum, int nGrid)
+{
+	
+  mesh  Th=square(nGrid, 2*nGrid, [x*pi-pi/2,2*y*pi]);  //  [-pi/2,pi/2]x[0,2*pi]
+  //  a parametrization of a sphere 
+  func f1 =cos(x)*cos(y);
+  func f2 =cos(x)*sin(y);
+  func f3 = sin(x);
+  
+  int[int] ref=[0, refNum];  
+  
+  mesh3  ThS= movemesh23(Th,transfo=[f1*R + rx,f2*R + ry,f3*R + rz], label=ref);
+  ThS = freeyams(ThS, hmax=1.5/nGrid);
+  return ThS;
+}*/
+
+//mesh3 ThSphere3 = SphereV2(0, 0, 0, 1, 10, 10);
+//plot(ThSphere3, wait=1);
+
+//func mesh3 HalfSphere(real rx, real ry, real rz, real R,real h,int L,int orientation)
+//半球体表面生成函数，
+//参数说明�?
+//   rx -- 球心x坐标
+//   ry -- 球心y坐标
+//   rz -- 球心z坐标
+//   R -- 球半�?
+//   h -- 调整球面网格尺寸取为0.01--0.1
+//   L -- 球面网格编号
+//   orientation -- 方向，取�?1
+func meshS HalfSphere(real rx, real ry, real rz, real R,real h,int L,int orientation)
+{
+  mesh  Th=square(50,100,[x*pi-pi/2,y*pi]);  //  [-pi/2,pi/2]x[0,2*pi]
+  //  a parametrization of a sphere 
+  func f1 =cos(x)*cos(y);
+  func f2 =cos(x)*sin(y);
+  func f3 = sin(x);
+  //    partiel derivative 
+  func f1x=sin(x)*cos(y);   
+  func f1y=-cos(x)*sin(y);
+  func f2x=-sin(x)*sin(y);
+  func f2y=cos(x)*cos(y);
+  func f3x=cos(x);
+  func f3y=0;
+  // the metric on the sphere  $  M = DF^t DF $
+  func m11=f1x^2+f2x^2+f3x^2;
+  func m21=f1x*f1y+f2x*f2y+f3x*f3y;
+  func m22=f1y^2+f2y^2+f3y^2;
+  
+  //func perio=[[4,y],[2,y],[1,x],[3,x]];  // to store the periodic condition 
+  
+//  real hh=h/R;// hh  mesh size on unite sphere
+//  real vv= 1/hh/hh;
+//  Th=adaptmesh(Th,m11*vv,m21*vv,m22*vv,IsMetric=1);
+//  Th=adaptmesh(Th,m11*vv,m21*vv,m22*vv,IsMetric=1);
+//  Th=adaptmesh(Th,m11*vv,m21*vv,m22*vv,IsMetric=1);
+//  Th=adaptmesh(Th,m11*vv,m21*vv,m22*vv,IsMetric=1);
+  int[int] ref=[0, L];  
+  
+  meshS  ThS= movemesh23(Th,transfo=[f1*R+rx,f2*R+ry,f3*R+rz],orientation=orientation,label=ref);
+  return ThS;
+}
+//meshS Ths = HalfSphere(0, 0, 0, 1, 0.04, 10, 1);
+//plot(Ths, wait=1);
+//medit("HalfSphere", Ths);
+
+//func mesh3 HalfSphere(real rx, real ry, real rz, real R,real h,int L,int orientation)
+//半球体表面生成函数，
+//参数说明�?
+//   rx -- 球心x坐标
+//   ry -- 球心y坐标
+//   rz -- 球心z坐标
+//   R -- 球半�?
+//   h -- 调整球面网格尺寸取为0.01--0.1
+//   L -- 球面网格编号
+//   orientation -- 方向，取�?1
+func meshS HalfSphereV2(real rx, real ry, real rz, real R, int refNum, int nGrid)
+{
+	mesh  Th=square(nGrid, 2*nGrid,[x*pi-pi/2,y*pi]); 
+    //  a parametrization of a sphere 
+    func f1 =cos(x)*cos(y);
+    func f2 =cos(x)*sin(y);
+    func f3 = sin(x);
+    //    partiel derivative 
+    func f1x=sin(x)*cos(y);   
+    func f1y=-cos(x)*sin(y);
+    func f2x=-sin(x)*sin(y);
+    func f2y=cos(x)*cos(y);
+    func f3x=cos(x);
+    func f3y=0;
+    // the metric on the sphere  $  M = DF^t DF $
+    func m11=f1x^2+f2x^2+f3x^2;
+    func m21=f1x*f1y+f2x*f2y+f3x*f3y;
+    func m22=f1y^2+f2y^2+f3y^2;
+  
+  //func perio=[[4,y],[2,y],[1,x],[3,x]];  // to store the periodic condition 
+  
+//  real hh=h/R;// hh  mesh size on unite sphere
+//  real vv= 1/hh/hh;
+//  Th=adaptmesh(Th,m11*vv,m21*vv,m22*vv,IsMetric=1);
+//  Th=adaptmesh(Th,m11*vv,m21*vv,m22*vv,IsMetric=1);
+//  Th=adaptmesh(Th,m11*vv,m21*vv,m22*vv,IsMetric=1);
+//  Th=adaptmesh(Th,m11*vv,m21*vv,m22*vv,IsMetric=1);
+    int[int] ref=[0, refNum];  
+  
+    meshS  ThS= movemesh23(Th,transfo=[f1*R+rx,f2*R+ry,f3*R+rz],orientation=1,label=ref);
+    return ThS;
+}
+
+//func mesh3 Ellipsoid(real rx, real ry, real rz, real a, real b, real c,real h,int L,int orientation)
+//椭球体面生成函数
+//参数说明�?
+//   rx -- 球心x坐标
+//   ry -- 球心y坐标
+//   rz -- 球心z坐标
+//   a -- x方向半轴�?
+//   b -- y方向半轴�?
+//   c -- z方向半轴�?
+//   h -- 调整球面网格尺寸取为0.01--0.1
+//   L -- 球面网格编号
+//   orientation -- 方向，取�?1
+func meshS Ellipsoid(real rx, real ry, real rz, real a, real b, real c,real h,int L,int orientation)
+{
+  mesh  Th=square(50,100,[x*pi-pi/2,2*y*pi]);  //  $]\frac{-pi}{2},frac{-pi}{2}[\times]0,2\pi[ $
+  //  a parametrization of a sphere 
+  func f1 =a*cos(x)*cos(y);
+  func f2 =b*cos(x)*sin(y);
+  func f3 =c*sin(x);
+  //    partiel derivative 
+  func f1x=a*sin(x)*cos(y);   
+  func f1y=-a*cos(x)*sin(y);
+  func f2x=-b*sin(x)*sin(y);
+  func f2y=b*cos(x)*cos(y);
+  func f3x=c*cos(x);
+  func f3y=0;
+  // the metric on the sphere  $  M = DF^t DF $
+  func m11=f1x^2+f2x^2+f3x^2;
+  func m21=f1x*f1y+f2x*f2y+f3x*f3y;
+  func m22=f1y^2+f2y^2+f3y^2;
+  
+  func perio=[[4,y],[2,y],[1,x],[3,x]];  // to store the periodic condition 
+  
+  real R = sqrt(a^2+b^2+c^2);
+  real hh=h/R;// hh  mesh size on unite sphere
+  real vv= 1/hh/hh;
+  Th=adaptmesh(Th,m11*vv,m21*vv,m22*vv,IsMetric=1,periodic=perio);
+  Th=adaptmesh(Th,m11*vv,m21*vv,m22*vv,IsMetric=1,periodic=perio);
+  Th=adaptmesh(Th,m11*vv,m21*vv,m22*vv,IsMetric=1,periodic=perio);
+  Th=adaptmesh(Th,m11*vv,m21*vv,m22*vv,IsMetric=1,periodic=perio);
+  int[int] ref=[0,L];  
+  
+  meshS ThS= movemesh23(Th,transfo=[f1+rx,f2+ry,f3+rz],orientation=orientation,label=ref);
+    
+	return ThS;
+}
+//===========================================================================================
+//meshS Ellip = Ellipsoid(0, 0, 0, 0.2, 0.3, 0.4, 0.01, 10, 1);
+//plot(Ellip, wait=1);
+
+//func mesh3 CCube(real originX, real originY, real originZ, real lenX, real lenY, real lenZ, int nGrid, int isHole)
+//单胞生成函数，单位立方体[0, 1]^3中嵌入一小立方体
+//参数说明
+//   originX -- 嵌入立方体x起始�?
+//   originY -- 嵌入立方体y起始�?
+//   originZ -- 嵌入立方体z起始�?
+//   lenX -- 嵌入立方体x方向长度
+//   lenY -- 嵌入立方体y方向长度
+//   lenZ -- 嵌入立方体z方向长度
+//   nGrid -- 网格划分段数，建�?<=30
+//   isHole -- 是否是孔�? 0 内部有实心夹杂，1内部空腔
+func mesh3 CCube(real originX, real originY, real originZ, real lenX, real lenY, real lenZ, int nGrid, int isHole)
+{
+    int[int] N = [nGrid, nGrid, nGrid];
+    int[int] N2 = [lenX*nGrid, lenY*nGrid, lenZ*nGrid];
+    
+    real[int,int] B = [[0, 1], [0, 1], [0, 1]];
+    int[int,int] L = [[1, 2], [3, 4], [5, 6]];
+    
+    real[int,int] B2 = [[originX, originX+lenX], [originY, originY+lenY], [originZ, originZ+lenZ]];
+    int[int,int] L2 = [[7, 8], [9, 10], [11, 12]];
+    
+    // 生成外部表面和内部表�?
+    meshS Th = SurfaceHex(N, B, L, 1);
+    meshS ThCube = SurfaceHex(N2, B2, L2, 1);
+    
+    // 将两个表面网格合并在一起，作为 tetgen 的输入边�?
+    Th = Th + ThCube; 
+    
+    real maxVol = (1./nGrid)^3/6;
+    
+    if(isHole == 0)
+    {
+        // 实心包含区域
+        real[int] domain = [
+            0.01, 0.01, 0.01, 53, maxVol, 
+            originX+lenX/2, originY+lenY/2, originZ+lenZ/2, 54, maxVol
+        ];
+        
+        // 注意：tetg 生成的是三维体网格，必须声明�? mesh3
+        mesh3 CellTh = tetg(Th, switch="paAAQYY", nbofregions=2, regionlist=domain);
+        return CellTh;
+    }
+    else
+    {
+        // 带有孔洞的区�?
+        real[int] domain = [0.01, 0.01, 0.01, 53, maxVol];
+        real[int] hole = [originX+lenX/2, originY+lenY/2, originZ+lenZ/2];
+        
+        
+        mesh3 CellTh = tetg(Th, switch="paAAQYY", nbofholes=1, holelist=hole, nbofregions=1, regionlist=domain);
+        return CellTh;
+    }
+}
+
+//mesh3 CellTh = CCube(0.25, 0.25, 0.25, 0.5, 0.5, 0.5, 20, 1);
+//plot(CellTh, wait=1);
+//int RM1 = CellTh(0.1, 0.1, 0.1).region;
+//int RM2 = CellTh(0.5, 0.5, 0.5).region;
+//cout << "RM1 = " << RM1 << endl;
+//cout << "RM2 = " << RM2 << endl;
+//fespace CellVh(CellTh, P1, periodic=[[3, x, z], [4, x, z], [1, y, z], [2, y, z], [5, x, y], [6, x, y]]);
+
+//savemesh(CellTh, "CellTh3D.mesh");
+
+//func mesh3 CBall(real rx, real ry, real rz, real radius, int nGrid, int isHole)
+//单胞生成函数，单位立方体[0, 1]^3中嵌入球�?
+//参数说明
+//   rx -- 球心x坐标
+//   ry -- 球心y坐标
+//   rz -- 球心z坐标
+//   radius -- 球半�?,大于0，小�?0.5
+//   nGrid -- 网格划分段数，建�?<=30
+//   isHole -- 是否是孔�?
+func mesh3 CBall(real rx, real ry, real rz, real radius, int nGrid, int isHole)
+{
+	real hs = 0.04;
+	int[int] N=[nGrid, nGrid, nGrid];
+	real[int ,int] B = [[0, 1], [0, 1], [0, 1]];
+	int[int, int] L = [[1, 2], [3, 4], [5, 6]];
+	meshS Th = SurfaceHex(N, B, L, 1);
+	meshS ThBall = Sphere(rx, ry, rz, radius, hs, 10, 1);
+	//ThBall = freeyams(ThBall, hmax = 1.5/nGrid);
+	Th = Th + ThBall;
+	real maxVol = (1./nGrid)^3/6;
+	if(isHole == 0)
+	{
+		real[int] domain = [0.01, 0.01, 0.01, 53, maxVol, 
+	                          rx, ry, rz, 54, maxVol];
+ 	    mesh3 CellTh = tetg(Th, switch="paAAQYY", nbofregions=2, regionlist=domain);
+ 	    return CellTh;
+	}else
+	{
+		real[int] hole = [rx, ry, rz];
+	    real[int] domain = [0.01, 0.01, 0.01, 53, maxVol];
+ 	    mesh3 CellTh = tetg(Th, switch="paAAQYY", nbofholes=1, holelist=hole, nbofregions=1, regionlist=domain);
+ 	    return CellTh;
+	}
+}
+
+//mesh3 CellTh = CBall(0.5, 0.5, 0.5, 0.3, 20, 0);
+//plot(CellTh, wait=1);
+//fespace CellVh(CellTh, P1, periodic=[[3, x, z], [4, x, z], [1, y, z], [2, y, z], [5, x, y], [6, x, y]]);
+//CellTh = mmg3d(CellTh, memory=100);
+//plot(CellTh, wait=1);
+//savemesh(CellTh, "Ball3D.mesh");
+//int RM1 = CellTh(0.1, 0.1, 0.1).region;
+//int RM2 = CellTh(0.5, 0.5, 0.5).region;
+//cout << "RM1 = " << RM1 << endl;
+//cout << "RM2 = " << RM2 << endl;
+
+//func mesh3 CEllipsoid(real rx, real ry, real rz, real a, real b, real c, int nGrid, int isHole)
+//单胞生成函数，单位立方体[0, 1]^3中嵌入标准椭球体
+//参数说明
+//   rx -- 球心x坐标
+//   ry -- 球心y坐标
+//   rz -- 球心z坐标
+//   a -- x方向半轴�?
+//   b -- y方向半轴�?
+//   c -- z方向半轴�?
+//   nGrid -- 网格划分段数，建�?<=30
+//   isHole -- 是否是孔�?
+func mesh3 CEllipsoid(real rx, real ry, real rz, real a, real b, real c, int nGrid, int isHole)
+{
+    real hs = 0.01;
+    int[int] N = [nGrid, nGrid, nGrid];
+    real[int, int] B = [[0, 1], [0, 1], [0, 1]];
+    int[int, int] L = [[1, 2], [3, 4], [5, 6]];
+    meshS Th = SurfaceHex(N, B, L, 1);
+    meshS ThBall = Ellipsoid(rx, ry, rz, a, b, c, hs, 10, 1);
+    Th = Th + ThBall;
+    real maxVol = (1./nGrid)^3/6.0;
+
+    mesh3 CellTh; // 提取声明，统一后续的边界修复流�?
+
+    // 1. 调用 TetGen 生成三维体网�?
+    if(isHole == 0)
+    {
+        real[int] domain = [0.01, 0.01, 0.01, 53, maxVol, 
+                            rx, ry, rz, 54, maxVol];
+        CellTh = tetg(Th, switch="paAAQYY", nbofregions=2, regionlist=domain);
+    }
+    else
+    {
+        real[int] hole = [rx, ry, rz];
+        real[int] domain = [0.01, 0.01, 0.01, 53, maxVol];
+        CellTh = tetg(Th, switch="paAAQYY", nbofholes=1, holelist=hole, nbofregions=1, regionlist=domain);
+    }
+func newLabels = (abs(x - 0.0) < 1e-4) ? 1 : (
+                     (abs(x - 1.0) < 1e-4) ? 2 : (
+                     (abs(y - 0.0) < 1e-4) ? 3 : (
+                     (abs(y - 1.0) < 1e-4) ? 4 : (
+                     (abs(z - 0.0) < 1e-4) ? 5 : (
+                     (abs(z - 1.0) < 1e-4) ? 6 : 10
+                     )))));
+	CellTh = change(CellTh, flabel=newLabels);
+
+    return CellTh;
+}
+
+//mesh3 CellTh = CEllipsoid(0.5, 0.5, 0.5, 0.15, 0.3, 0.2, 20, 1);
+//plot(CellTh, wait=1);
+//savemesh(CellTh, "Ellipsoid.mesh");
+//int RM1 = CellTh(0.1, 0.1, 0.1).region;
+//int RM2 = CellTh(0.5, 0.5, 0.5).region;
+//cout << "RM1 = " << RM1 << endl;
+//cout << "RM2 = " << RM2 << endl;
+//fespace CellVh(CellTh, P1, periodic=[[3, x, z], [4, x, z], [1, y, z], [2, y, z], [5, x, y], [6, x, y]]);
+
+//func mesh3 CEllipsoidAny(real rx, real ry, real rz, real a, real b, real c, real alpha, real beta, real gamma, int nGrid, int isHole)
+//单胞生成函数，单位立方体[0, 1]^3中嵌入任意方向椭球体
+//参数说明
+//   rx -- 球心x坐标
+//   ry -- 球心y坐标
+//   rz -- 球心z坐标
+//   a -- x方向半轴�?
+//   b -- y方向半轴�?
+//   c -- z方向半轴�?
+//   alpha -- �?1欧拉�?
+//   beta -- �?2欧拉�?
+//   gamma -- �?3欧拉�?
+//   nGrid -- 网格划分段数，建�?<=30
+//   isHole -- 是否是孔�?
+func mesh3 CEllipsoidAny(real rx, real ry, real rz, real a, real b, real c, real alpha, real beta, real gamma, int nGrid, int isHole)
+{
+    real hs = 0.01;
+    int[int] N=[nGrid, nGrid, nGrid];
+    real[int ,int] B = [[0, 1], [0, 1], [0, 1]];
+    int[int, int] L = [[1, 2], [3, 4], [5, 6]];
+    
+    // 外部边界：生成空心长方体表面
+    meshS Th = SurfaceHex(N, B, L, 1);
+    
+    // 内部边界：生成空心椭球表�? (假设你的 Ellipsoid 函数也已经按之前的规则改成了返回 meshS)
+    meshS ThBall = Ellipsoid(0, 0, 0, a, b, c, hs, 10, 1);
+    
+    // 定义欧拉角旋转矩阵的坐标系映�?
+    func fx = (cos(gamma)*cos(alpha) - sin(gamma)*cos(beta)*sin(alpha))*x + (-cos(gamma)*sin(alpha) - sin(gamma)*cos(beta)*cos(alpha))*y + sin(gamma)*sin(beta)*z;
+    func fy = (sin(gamma)*cos(alpha) + cos(gamma)*cos(beta)*sin(alpha))*x + (-sin(gamma)*sin(alpha) + cos(gamma)*cos(beta)*cos(alpha))*y - cos(gamma)*sin(beta)*z;
+    func fz = sin(beta)*sin(alpha)*x + sin(beta)*cos(alpha)*y + cos(beta)*z;
+
+    ThBall = movemeshS(ThBall, transfo=[rx + fx, ry + fy, rz + fz]);
+    
+    // 合并内外两层表面网格
+    Th = Th + ThBall;
+    
+    real maxVol = (1./nGrid)^3/6;
+    
+    if(isHole == 0)
+    {
+        // 包含实心椭球体的区域
+        real[int] domain = [
+            0.01, 0.01, 0.01, 53, maxVol, 
+            rx, ry, rz, 54, maxVol
+        ];
+        
+        // TetGen 灌注四面体，生成并返回最终的 mesh3 体网�?
+        mesh3 CellTh = tetg(Th, switch="paAAQYY", nbofregions=2, regionlist=domain);
+        return CellTh;
+    }
+    else
+    {
+        // 挖出椭球形孔洞的区域
+        real[int] hole = [rx, ry, rz];
+        real[int] domain = [0.01, 0.01, 0.01, 53, maxVol];
+        
+        // TetGen 灌注四面体，保留孔洞
+        mesh3 CellTh = tetg(Th, switch="paAAQYY", nbofholes=1, holelist=hole, nbofregions=1, regionlist=domain);
+        return CellTh;
+    }
+}
+
+//mesh3 CellTh = CEllipsoidAny(0.5, 0.5, 0.5, 0.15, 0.3, 0.2, pi/2, pi/4, pi/4, 20, 0);
+//plot(CellTh, wait=1);
+//savemesh(CellTh, "Ellipsoid.mesh");
+//int RM1 = CellTh(0.1, 0.1, 0.1).region;
+//int RM2 = CellTh(0.5, 0.5, 0.5).region;
+//cout << "RM1 = " << RM1 << endl;
+//cout << "RM2 = " << RM2 << endl;
+
+//func mesh3 CSphereRand(int count, int nGrid)
+//随机球单胞网格生成函�?
+//参数说明�?
+//   count -- 生成球个�?
+//   nGrid -- 网格划分段数，建�?<=30
+func mesh3 CSphereRand(int count, int nGrid)
+{
+	int[int] N=[nGrid, nGrid, nGrid];
+	real[int ,int] B = [[0, 1], [0, 1], [0, 1]];
+	int[int, int] L = [[1, 2], [3, 4], [5, 6]];
+	meshS Th = SurfaceHex(N, B, L, 1);
+	real[int] radius(count), rx(count), ry(count), rz(count);
+	int c = time();
+	randinit(c);
+	for(int i = 0; i < count; i++)
+	{
+		int flag = true;
+		while(flag)
+		{
+			radius[i] = 0.05*randreal1() + 0.05;
+			rx[i] = randreal3();
+			ry[i] = randreal3();
+			rz[i] = randreal3();
+			if(rx[i] + radius[i] < 1 && rx[i] - radius[i] > 0 && 
+		       ry[i] + radius[i] < 1 && ry[i] - radius[i] > 0 &&
+		       rz[i] + radius[i] < 1 && rz[i] - radius[i] > 0)
+		    {
+			    int j = 0;
+			    for(j = 0; j < i; j++)
+			    {
+				    if(radius[i] + radius[j] >= sqrt((rx[i] - rx[j])^2 + (ry[i] - ry[j])^2 + (rz[i] - rz[j])^2))
+				    {
+					    break;
+					}
+				}
+				if(j == i)
+				    flag = false;
+		     }
+	    }
+	    meshS ThBall = Sphere(rx[i], ry[i], rz[i], radius[i], 0.02, 10, 1);
+	    Th = Th + ThBall; 
+    }
+	real[int] domain((count+1)*5);
+	domain[0] = 0.01;
+	domain[1] = 0.01;
+	domain[2] = 0.01;
+	domain[3] = 53;
+	domain[4] = (1./nGrid)^3/6;
+	for(int i = 0; i < count; i++)
+	{
+		domain[(i+1)*5] = rx[i];
+		domain[(i+1)*5 + 1] = ry[i];
+		domain[(i+1)*5 + 2] = rz[i];
+		domain[(i+1)*5 + 3] = 54;
+		domain[(i+1)*5 + 4] = (1./nGrid)^3/6;
+	}
+ 	mesh3 CellTh = tetg(Th, switch="paAAQYY", nbofregions=count + 1, regionlist=domain);
+ 	return CellTh;
+}
+
+//mesh3 CellTh = CSphereRand(90, 20);
+//plot(CellTh, wait=1);
+//fespace CellVh(CellTh, P1, periodic=[[3, x, z], [4, x, z], [1, y, z], [2, y, z], [5, x, y], [6, x, y]]);
+//medit("CellTh", CellTh);
+
+//func mesh3 CEllipsoidRand(int count, int nGrid)
+//随机椭球体网格生成函数，待完成。。。。�?
+func mesh3 CEllipsoidRand(int count, int nGrid)
+{
+	int[int] N=[nGrid, nGrid, nGrid];
+	real[int ,int] B = [[0, 1], [0, 1], [0, 1]];
+	int[int, int] L = [[1, 2], [3, 4], [5, 6]];
+	meshS Th = SurfaceHex(N, B, L, 1);
+	real[int] radius(count), rx(count), ry(count), rz(count);
+	int c = time();
+	randinit(c);
+	for(int i = 0; i < count; i++)
+	{
+		int flag = true;
+		while(flag)
+		{
+			radius[i] = 0.05*randreal1() + 0.1;
+			rx[i] = randreal3();
+			ry[i] = randreal3();
+			rz[i] = randreal3();
+			if(rx[i] + radius[i] < 1 && rx[i] - radius[i] > 0 && 
+		       ry[i] + radius[i] < 1 && ry[i] - radius[i] > 0 &&
+		       rz[i] + radius[i] < 1 && rz[i] - radius[i] > 0)
+		    {
+			    int j = 0;
+			    for(j = 0; j < i; j++)
+			    {
+				    if(radius[i] + radius[j] >= sqrt((rx[i] - rx[j])^2 + (ry[i] - ry[j])^2 + (rz[i] - rz[j])^2))
+				    {
+					    break;
+					}
+				}
+				if(j == i)
+				    flag = false;
+		     }
+	    }
+	    meshS ThBall = Sphere(rx[i], ry[i], rz[i], radius[i], 0.02, 10, 1);
+	    Th = Th + ThBall; 
+    }
+	real[int] domain((count+1)*5);
+	domain[0] = 0.01;
+	domain[1] = 0.01;
+	domain[2] = 0.01;
+	domain[3] = 53;
+	domain[4] = (1./nGrid)^3/6;
+	for(int i = 0; i < count; i++)
+	{
+		domain[(i+1)*5] = rx[i];
+		domain[(i+1)*5 + 1] = ry[i];
+		domain[(i+1)*5 + 2] = rz[i];
+		domain[(i+1)*5 + 3] = 54;
+		domain[(i+1)*5 + 4] = (1./nGrid)^3/6;
+	}
+ 	mesh3 CellTh = tetg(Th, switch="paAAQYY", nbofregions=count + 1, regionlist=domain);
+ 	return CellTh;
+}
+
+/*
+
+//savemesh(CellTh, "CellThCircelRand.mesh");
+*/
+//mesh3 CellTh = CSphereRand(100, 20);
+//plot(CellTh, wait=1);
+//===============================================
+
+//func mesh3 CFibire1X(real rx, real ry, real a, real b, int nGrid)
+//单向椭圆形纤维区域单胞生成函�?
+//参数说明�?
+//   rx，ry -- 椭圆柱纤维映射到xy平面上的椭圆圆心的x坐标, y坐标
+//   a, b -- 椭圆柱x方向半轴长与y方向半轴�?
+//   nGrid -- 网格划分段数，建�?<=30
+func mesh3 CFibire1X(real rx, real ry, real a, real b, int nGrid)
+{
+	//外边�?
+    border C01(t=0, 1) {x=t; y=0;label=1;}
+    border C02(t=0, 1) {x=1; y=t;label=2;}
+    border C03(t=0, 1) {x=(1-t); y=1;label=3;}
+    border C04(t=0, 1) {x=0; y=1-t;label=4;}
+
+    //内边�?
+    border Ellipse(t=0, 2*pi) {x=rx+a*cos(t); y=ry+b*sin(t);label= 10;}
+    int nGrid1 = 2*nGrid;
+	mesh BaseTh = buildmesh(C01(nGrid)+C02(nGrid)+C03(nGrid)+C04(nGrid)
+                      +Ellipse(nGrid1));
+                      
+    {   //重排结点编号
+    	int[int] old2new(0:BaseTh.nv-1);
+    	fespace Vh2(BaseTh,P1);
+    	Vh2 sorder=x+y; 
+    	sort(sorder[],old2new);
+    	int[int]  new2old=old2new^-1;   // inverse the permuation 
+    	BaseTh= change(BaseTh,renumv=new2old);
+    }
+	int[int] R = [0, 1, 0, 2];
+	R[0] = BaseTh(0.5, 0.5).region;
+	R[2] = BaseTh(0.01, 0.01).region;
+	BaseTh = change(BaseTh, region=R);
+	int[int] rup = [1, 5, 2, 5], rdown=[1, 6, 2, 6], rmid = [1, 3, 2, 2, 3, 4, 4, 1];
+	mesh3 Th = buildlayers(BaseTh, nGrid, zbound=[0, 1], labelup = rup, labeldown=rdown, labelmid=rmid);
+	return Th; 
+}
+
+//real radius = 3*sqrt(3)/(10*sqrt(pi));
+//cout << radius << "  " << pi*radius^2 <<  endl;
+//mesh3 CellTh = CFibire1X(0.5, 0.5, 3*sqrt(3)/(10*sqrt(pi)), 3*sqrt(3)/(10*sqrt(pi)), 20);
+//plot(CellTh, wait=1);
+//int RM1 = CellTh(0.1, 0.1, 0.1).region;
+//int RM2 = CellTh(0.5, 0.5, 0.5).region;
+
+//cout << "RM1 = " << RM1 << endl;
+//cout << "RM2 = " << RM2 << endl;
+//fespace CellVh(CellTh, P1, periodic=[[3, x, z], [4, x, z], [1, y, z], [2, y, z], [5, x, y], [6, x, y]]);
+
+
+//func mesh3 HCube(int nGrid)
+//单位立方体网格生成函�?
+//生成[0, 1]^3下立方体网格
+//参数说明�?
+//  nGrid -- 网格划分段数，建�?<=30
+func mesh3 HCube(int nGrid)
+{
+	
+	mesh Th = square(nGrid, nGrid);
+	int[int] rup = [0, 5], rdown=[0, 6], rmid = [1, 3, 2, 2, 3, 4, 4, 1];
+    mesh3 Th3= buildlayers(Th, nGrid, zbound=[0, 1], labelmid=rmid, labelup=rup, labeldown=rdown);
+ 	return Th3;
+}
+/*
+mesh3 HomoTh = HCube(20);
+//HomoTh = trunc(HomoTh, x < 0.5 | y<0.5 | z < 0.5, label = 10);
+//savemesh(HomoTh, "HomoTh.mesh");
+plot(HomoTh, wait=1);
+*/
+/*
+mesh3 HomoTh = HCube(2);
+plot(HomoTh, wait=1);
+savemesh(HomoTh, "HCube2.mesh");
+*/
+
+//func mesh3 Hex(real ox, real oy, real oz, 
+//                real xlen, real ylen, real zlen, 
+//                int xgrid, int ygrid, int zgrid)
+//任意长方体网格生成函�?
+//生成[0, 1]^3下立方体网格
+//参数说明�?
+//  ox -- x方向起始�?
+//  oy -- y方向起始�?
+//  oz -- z方向起始�?
+//  xlen -- x方向长度
+//  ylen -- y方向长度
+//  zlen -- z方向长度
+//  xgrid -- x方向网格划分段数
+//  ygrid -- y方向网格划分段数
+//  zgrid -- z方向网格划分段数
+func mesh3 Hex(real ox, real oy, real oz, 
+                real xlen, real ylen, real zlen, 
+                int xgrid, int ygrid, int zgrid)
+{
+	mesh Th = square(xgrid, ygrid, [(xlen-ox)*x + ox, (ylen-oy)*y + oy]);
+	int[int] rup = [0, 5], rdown=[0, 6];
+	mesh3 Th3= buildlayers(Th, zgrid, zbound=[oz, oz+zlen], labelup=rup, labeldown=rdown);
+ 	return Th3;
+}
+
+//mesh3 HomoTh = Hex(0, 0, 0, 20, 4, 4, 40, 10, 10);
+//plot(HomoTh, wait=1);
+//fespace Vh3(HomoTh, P1);
+//Vh3 u, v;
+//func f = 10;
+//solve Possion3D(u, v) = 
+//                     int3d(HomoTh)((dx(u)*dx(v) + dy(u)*dy(v) + dz(u)*dz(v)))
+//                    -int3d(HomoTh)(f*v)
+//                     +on(1, 2, 3, 4, 5, 6, u = 0);
+//plot(u, wait=1, value=1);
+
+//savemesh(HomoTh, "HomoTh3D.mesh");
+
+
+func mesh3 HCubeL(int nGrid)
+{
+	mesh3 Th3 = HCube(nGrid);
+	Th3 = trunc(Th3, x<=0.5||y<=0.5||z<=0.5, label=8);
+	return Th3;
+}
+
+//mesh3 HomoTh = HCubeL(20);
+//plot(HomoTh, wait=1);
+//fespace Vh3(HomoTh, P1);
+//Vh3 u, v;
+//func f = 10;
+//problem Possion3D(u, v) = 
+//                     int3d(HomoTh)((dx(u)*dx(v) + dy(u)*dy(v) + dz(u)*dz(v)))
+//                    -int3d(HomoTh)(f*v)
+//                     +on(1, 2,3 , 4, 5, 6, 8, u = 0);
+//plot(u, wait=1, value=1);
+//medit("u", HomoTh, u);
+//
+////mesh3 Th = CuboidFace(0.25, 0.25, 0.25, 1.0, 2.0, 3.0, 10);
+////plot(Th, wait=1);
+//
+//func mesh3 CuboidFaceV2(real cx, real cy, real cz, real lenX, real lenY, real lenZ, int nGrid)
+//{
+//	int gridX = nGrid*lenX;
+//	int gridY = nGrid*lenY;
+//	int gridZ = nGrid*lenZ;
+//	
+//	border ThBT1(t=0, 1){x = cx + lenX*t; y = cy;}
+//	border ThBT2(t=0, 1){x = cx + lenX; y = cy + lenY*t; }
+//	border ThBT3(t=0, 1){x = cx + (1-t)*lenX; y = cy + lenY; }
+//	border ThBT4(t=0, 1){x = cx; y = cy + (1-t)*lenY; }
+//	
+//	mesh Th1 = buildmesh(ThBT1(gridX) + ThBT2(gridY) + ThBT3(gridX) + ThBT4(gridY));
+//	
+//	mesh3 FinalTh;
+//	mesh3 ThButtom = movemesh23(Th1, transfo = [x, y, cz]);
+//	mesh3 ThTop = movemesh23(Th1, transfo = [x, y, cz + lenZ]);
+//	
+//	border ThLR1(t=0, 1){x = cx + lenX*t; y = cz;}
+//	border ThLR2(t=0, 1){x = cx + lenX; y = cz + lenZ*t; }
+//	border ThLR3(t=0, 1){x = cx + (1-t)*lenX; y = cz + lenZ; }
+//	border ThLR4(t=0, 1){x = cx; y = cz + (1-t)*lenZ; }
+//	
+//	mesh Th2 = buildmesh(ThLR1(gridX) + ThLR2(gridZ) + ThLR3(gridX) + ThLR4(gridZ));
+//	mesh3 ThLeft = movemesh23(Th2, transfo = [x, cy, y]);
+//	mesh3 ThRight = movemesh23(Th2, transfo = [x, cy + lenY, y]);
+//	
+//	border ThFB1(t=0, 1){x = cy + lenY*t; y = cz;}
+//	border ThFB2(t=0, 1){x = cy + lenY; y = cz + lenZ*t; }
+//	border ThFB3(t=0, 1){x = cy + (1-t)*lenY; y = cz + lenZ; }
+//	border ThFB4(t=0, 1){x = cy; y = cz + (1-t)*lenZ; }
+//	
+//	mesh Th3 = buildmesh(ThFB1(gridY) + ThFB2(gridZ) + ThFB3(gridY) + ThFB4(gridZ));
+//	mesh3 ThBack = movemesh23(Th3, transfo = [cx, x, y]);
+//	mesh3 ThFront = movemesh23(Th3, transfo = [cx+lenX, x, y]);
+//	
+//	FinalTh = ThButtom + ThTop + ThLeft + ThRight + ThBack + ThFront;
+//	return FinalTh;
+//}
+///*
+//mesh3 CF2 = CuboidFaceV2(0, 0, 0, 1, 2, 3, 10);
+//plot(CF2, wait=1);
+//*/
+
+//func mesh3 CCompo3D(real cx1, real cy1, real cz1, real lenX1, real lenY1, real lenZ1,
+//                    real cx2, real cy2, real cz2, real lenX2, real lenY2, real lenZ2,
+//                    int nGrid)
+//三维孔洞复合单胞网格生成函数
+func mesh3 CCompo3D(real cx1, real cy1, real cz1, real lenX1, real lenY1, real lenZ1,
+                    real cx2, real cy2, real cz2, real lenX2, real lenY2, real lenZ2,
+                    int nGrid)
+{
+	meshS ThCubic = CuboidFace(0.0, 0.0, 0.0, 1.0, 1.0, 1.0, nGrid, 1);//
+	meshS ThCubicIn1 = CuboidFaceV2(cx1, cy1, cz1, lenX1, lenY1, lenZ1, nGrid, 1);
+	meshS ThCubicIn2 = CuboidFaceV2(cx2, cy2, cz2, lenX2, lenY2, lenZ2, nGrid, 1);
+	meshS Final = ThCubic + ThCubicIn1 + ThCubicIn2;
+	real maxVol = (1.0/nGrid)^3/6;
+	real[int]  domain = [0.01, 0.01, 0.01, 10, maxVol,
+	                     (cx1+cx2)/2, (cy1+cy2)/2, (cz1+cz2)/2, 20, maxVol];
+	real[int] hole = [0.5, 0.5, 0.5];
+	mesh3 CellTh = tetg(Final, switch="paAAQYY", nbofholes=1, holelist=hole, nbofregions=2, regionlist=domain);
+ 	return CellTh;
+}
+
+//mesh3 CellTh = CCompo3D(0.2, 0.2, 0.2, 0.6, 0.6, 0.6, 
+//                        0.3, 0.3, 0.3, 0.4, 0.4, 0.4, 30);
+//savemesh(CellTh, "CCompo3D.mesh");
+//plot(CellTh, wait=1);
+
+//宏观细网格，球体嵌入复合区域
+func mesh3 MUnitBall(int n, real rx, real ry, real rz, real radius, int nGrid)
+{
+	real epsilon = 1./n;
+	real maxVol = (1.0/nGrid)^3/6;
+	real[int] Rregion((n*n*n + 1)*5);
+	meshS MacroTh = UnitSurfaceHex(nGrid, 1);
+	meshS Ball = Sphere(0, 0, 0, radius, 0.05, 5, 1);
+	for(int i = 0; i < n; i++)
+	{
+		for(int j = 0; j < n; j++)
+		{
+			for(int k = 0; k < n; k++)
+			{
+				meshS newBall = movemeshS(Ball, transfo=[(rx + i + x)*epsilon, (ry + j + y)*epsilon, (rz + k + z)*epsilon]);
+				//Sphere((rx + i)*epsilon, (ry + j)*epsilon, (rz + k)*epsilon, radius*epsilon, 0.01, 10, 1);
+				MacroTh = MacroTh + newBall;
+				Rregion[(i*n*n + j*n + k)*5] = (0.5+i)*epsilon;
+				Rregion[(i*n*n + j*n + k)*5 + 1] = (0.5+j)*epsilon;
+				Rregion[(i*n*n + j*n + k)*5 + 2] = (0.5+k)*epsilon;
+				Rregion[(i*n*n + j*n + k)*5 + 3] = 40;
+				Rregion[(i*n*n + j*n + k)*5+ 4] = maxVol;
+			}
+		}
+	}
+	
+	Rregion[n*n*n*5]     = 0.001;
+	Rregion[n*n*n*5 + 1] = 0.001;
+	Rregion[n*n*n*5 + 2] = 0.001;
+	Rregion[n*n*n*5 + 3] = 10;
+	Rregion[n*n*n*5 + 4] = maxVol;
+	//plot(MacroTh, wait=1);
+	mesh3 MacroTh1 = tetg(MacroTh,  switch="paAAQYY", nbofregions=n*n*n + 1, regionlist=Rregion);
+	return MacroTh1;
+}                  
+
+
+func mesh3 MUnitBalls(int n, real rx, real ry, real rz, real radius, int nGrid)
+{
+	real epsilon = 1./n;
+	real maxVol = (1.0/nGrid)^3/6;
+	real[int] Rregion((n*n*n + 1)*5);
+	meshS MacroTh = UnitSurfaceHex(nGrid, 1);
+	meshS Ball = Sphere(0, 0, 0, radius, 0.1, 5, 1);
+	for(int i = 0; i < n; i++)
+	{
+		for(int j = 0; j < n; j++)
+		{
+			for(int k = 0; k < n; k++)
+			{
+				meshS newBall = movemeshS(Ball, transfo=[(rx + i + x)*epsilon, (ry + j + y)*epsilon, (rz + k + z)*epsilon]);
+				//Sphere((rx + i)*epsilon, (ry + j)*epsilon, (rz + k)*epsilon, radius*epsilon, 0.01, 10, 1);
+				MacroTh = MacroTh + newBall;
+				Rregion[(i*n*n + j*n + k)*5] = (0.5+i)*epsilon;
+				Rregion[(i*n*n + j*n + k)*5 + 1] = (0.5+j)*epsilon;
+				Rregion[(i*n*n + j*n + k)*5 + 2] = (0.5+k)*epsilon;
+				Rregion[(i*n*n + j*n + k)*5 + 3] = 40;
+				Rregion[(i*n*n + j*n + k)*5+ 4] = maxVol;
+			}
+		}
+	}
+	
+	Rregion[n*n*n*5]     = 0.001;
+	Rregion[n*n*n*5 + 1] = 0.001;
+	Rregion[n*n*n*5 + 2] = 0.001;
+	Rregion[n*n*n*5 + 3] = 10;
+	Rregion[n*n*n*5 + 4] = maxVol;
+	//plot(MacroTh, wait=1);
+	mesh3 MacroTh1 = tetg(MacroTh,  switch="paAAQYY", nbofregions=n*n*n + 1, regionlist=Rregion);
+	return MacroTh1;
+}                  
+
+
+//mesh3 MacroTh = MUnitBall(8, 0.5, 0.5, 0.5, 0.3, 20);
+//plot(MacroTh, wait=1);
+//fespace Vh0(MacroTh, P0);
+//Vh0 a = 1*(region==10) + 0.001*(region==20);
+//mesh3 MacroTh("MBall8.mesh");
+//cout << MacroTh.nv << endl;
+//cout << MacroTh.nt << endl;
+//fespace Vh3(MacroTh, P1);
+//Vh3 u, v;
+//func f = 10;
+//solve Possion3D(u, v) = 
+//                     int3d(MacroTh, 10)((dx(u)*dx(v) + dy(u)*dy(v) + dz(u)*dz(v)))
+//                     +int3d(MacroTh, 40)(0.001*(dx(u)*dx(v) + dy(u)*dy(v) + dz(u)*dz(v)))
+//                     -int3d(MacroTh)(f*v)
+//                     +on(1, 2, 3, 4, 5, 6, u = 0);
+//plot(u, wait=1, value=1);
+//medit("u", MacroTh, u);
+//savemesh(MacroTh, "MBall8.mesh");
+//cout << MacroTh.nv << endl;
+//cout << MacroTh.nt << endl;
+//cout << MacroTh(0.5, 0.5, 0.5).region << endl;
+//cout << MacroTh(0.1, 0.1, 0.1).region << endl; 
+//
+
+
+//宏观细网格，立方体嵌入复合区�?
+func mesh3 MUnitCube(int n, real rx, real ry, real rz, real lenX, real lenY, real lenZ, int nGrid)
+{
+	real epsilon = 1./n;
+	real maxVol = (1.0/nGrid)^3/12;
+	real[int] Rregion((n*n*n + 1)*5);
+	meshS MacroTh = UnitSurfaceHex(nGrid, 1);
+	for(int i = 0; i < n; i++)
+	{
+		for(int j = 0; j < n; j++)
+		{
+			for(int k = 0; k < n; k++)
+			{
+				meshS Cubic = UnitSurfaceHexV2(4, 1);
+				Cubic = movemeshS(Cubic, transfo=[(rx + i + x*lenX)*epsilon, (ry + j + y*lenY)*epsilon, (rz + k + z*lenZ)*epsilon]); 
+				//Sphere((rx + i)*epsilon, (ry + j)*epsilon, (rz + k)*epsilon, radius*epsilon, 0.01, 10, 1);
+				MacroTh = MacroTh + Cubic;
+				Rregion[(i*n*n + j*n + k)*5] = (0.5 + i)*epsilon;
+				Rregion[(i*n*n + j*n + k)*5 + 1] = (0.5 + j)*epsilon;
+				Rregion[(i*n*n + j*n + k)*5 + 2] = (0.5 + k)*epsilon;
+				Rregion[(i*n*n + j*n + k)*5 + 3] = 40;
+				Rregion[(i*n*n + j*n + k)*5 + 4] = maxVol;
+			}
+		}
+	}
+	
+	Rregion[n*n*n*5]     = 0.001;
+	Rregion[n*n*n*5 + 1] = 0.001;
+	Rregion[n*n*n*5 + 2] = 0.001;
+	Rregion[n*n*n*5 + 3] = 10;
+	Rregion[n*n*n*5 + 4] = maxVol;
+	//plot(MacroTh, wait=1);
+	mesh3 MacroTh1 = tetg(MacroTh, switch="paAAQYY", nbofregions=n*n*n + 1, regionlist=Rregion);
+	//MacroTh = tetg(MacroTh);
+	return MacroTh1;
+}
+//int n = 6;
+//mesh3 MacroTh = MUnitCube(n, 0.25, 0.25, 0.25, 0.5, 0.5, 0.5, 20);
+//int RMM1 = MacroTh(0.1/n, 0.1/n, 0.1/n).region;
+//int RMM2 = MacroTh(0.5/n, 0.5/n, 0.5/n).region;
+//func aM = 1*(region==RMM1) + 0.001*(region==RMM2);
+
+//
+//MacroTh =  trunc(MacroTh, x<=0.5||y<=0.5||z<=0.5, label=8);
+//plot(MacroTh, wait=1);
+//savemesh(MacroTh, "MCube6.mesh");
+//fespace Vh3(MacroTh, P1);
+//Vh3 u, v;
+//func f = 10;
+//solve Possion3D(u, v) = 
+//                      int3d(MacroTh)(aM*(dx(u)*dx(v) + dy(u)*dy(v) + dz(u)*dz(v)))
+//                     -int3d(MacroTh)(f*v)
+//                     +on(1, 2, 3, 4, 5, 6, u = 0);
+//plot(u, wait=1, value=1);
+//medit("u", MacroTh, u);
+
+
+////////////
+//
+func mesh3 MCube(int nx, int ny, int nz, real rx, real ry, real rz, real lenX, real lenY, real lenZ, int nGrid)
+{
+	
+	real[int] Rregion((nx*ny*nz + 1)*5);
+	real maxVal = max(max(nx, ny), nz);
+	real maxVol = (maxVal/nGrid)^3/24;
+
+
+	meshS MacroTh = CuboidFace(0, 0, 0, nx, ny, nz, nGrid/maxVal, 1);
+	for(int i = 0; i < nx; i++)
+	{
+		for(int j = 0; j < ny; j++)
+		{
+			for(int k = 0; k < nz; k++)
+			{
+				meshS Cubic = UnitSurfaceHexV2(4, 1);
+				Cubic = movemeshS(Cubic, transfo=[rx + i + x*lenX, ry + j + y*lenY, rz + k + z*lenZ]); 
+				//Sphere((rx + i)*epsilon, (ry + j)*epsilon, (rz + k)*epsilon, radius*epsilon, 0.01, 10, 1);
+				//cout << rx + i + lenX/2 << "  " << ry + j + lenY/2 << "  " << rz + k + lenZ/2 << endl;
+				MacroTh = MacroTh + Cubic;
+			    Rregion[(i*ny*nz + j*nz + k)*5] = (0.5 + i);
+				Rregion[(i*ny*nz + j*nz + k)*5 + 1] = (0.5 + j);
+				Rregion[(i*ny*nz + j*nz + k)*5 + 2] = (0.5 + k);
+				Rregion[(i*ny*nz + j*nz + k)*5 + 3] = 40;
+				Rregion[(i*ny*nz + j*nz + k)*5+ 4] = maxVol;
+			}
+		}
+	}
+	
+	Rregion[nx*ny*nz*5]     = 0.001;
+	Rregion[nx*ny*nz*5 + 1] = 0.001;
+	Rregion[nx*ny*nz*5 + 2] = 0.001;
+	Rregion[nx*ny*nz*5 + 3] = 10;
+	Rregion[nx*ny*nz*5 + 4] = maxVol;
+	plot(MacroTh, wait=1);
+	mesh3 MacroTh1 = tetg(MacroTh, switch="paAAQYY", nbofregions=nx*ny*nz + 1, regionlist=Rregion);
+	//MacroTh = tetg(MacroTh);
+	cout << maxVol << endl;
+	return MacroTh1;
+}
+
+//mesh3 MacroTh = MCube(6, 6, 6, 0.25, 0.25, 0.25, 0.5, 0.5, 0.5, 20);
+////for(int i = 0; i < 6; i++)
+////{
+////	for(int j = 0; j < 6; j++)
+////	{
+////		for(int k = 0; k < 2; k++)
+////		{
+////			cout << MacroTh(0.5+i, 0.5+j, 0.5+z).region << "  " ;
+////		}
+////		cout << endl;
+////	}
+////	cout << endl;
+////	
+////}
+//
+////plot(MacroTh, wait=1);
+////cout << MacroTh.nv << endl;
+////cout << MacroTh.nt << endl;
+////
+//MacroTh = movemesh3(MacroTh, transfo=[x/6, y/6, z/6]);
+//fespace Vh3(MacroTh, P1);
+//Vh3 u, v;
+//func f = 10;
+//solve Possion3D(u, v) = 
+//                      int3d(MacroTh, 10)((dx(u)*dx(v) + dy(u)*dy(v) + dz(u)*dz(v)))
+//                     +int3d(MacroTh, 40)(0.001*(dx(u)*dx(v) + dy(u)*dy(v) + dz(u)*dz(v)))
+//                     -int3d(MacroTh)(f*v)
+//                     +on(1, 2, 3, 4, 5, 6, u = 0);
+//plot(u, wait=1, value=1);
+//medit("u", MacroTh, u);
+//savemesh(MacroTh, "MCube8.mesh");
+
+//cout << MacroTh(0.5, 0.5, 0.5).region << endl;
+//cout << MacroTh(0.1, 0.1, 0.1).region << endl; 
+
+
+//int nGrid = 5;
+//real maxVol = (1.0/nGrid)^3/6;
+//
+//int nx, ny, nz;
+//nx = 5;
+//ny = 5;
+//nz = 2;
+//
+//mesh3 Plate3DTh = CuboidFace(0, 0, 0, nx, ny, nz, nGrid);
+//for(int i = 0; i < nx; i++)
+//{
+//	for(int j = 0; j < ny; j++)
+//	{
+//		for(int k = 0; k < nz; k++)
+//		{
+//			mesh3 Ball = Sphere(0.5 + i, 0.5 + j, 0.5 + k, 0.3, 0.1, 10,1);
+//			Plate3DTh = Plate3DTh + Ball;
+//			 = 0.5+i;
+//			 = 0.5+j;
+//			 = 0.5+k;
+//			 = 40;
+//			 = maxVol;
+//		}
+//		
+//	}
+//	
+//}
+//
+//Rregion[nx*ny*nz*5]     = 0.001;
+//Rregion[nx*ny*nz*5 + 1] = 0.001;
+//Rregion[nx*ny*nz*5 + 2] = 0.001;
+//Rregion[nx*ny*nz*5 + 3] = 10;
+//Rregion[nx*ny*nz*5 + 4] = maxVol;
+//
+//Plate3DTh = tetg(Plate3DTh,  switch="paAAQYY", nbofregions=nx*ny*nz + 1, regionlist=Rregion);
+
+//mesh3 MacroTh = MUnitCube(10, 0.25, 0.25, 0.25, 0.5, 0.5, 0.5, 30);
+////real epsilon = 1./2;
+//plot(MacroTh, wait=1); 
+////cout << MacroTh.nv << endl;
+////cout << MacroTh.nt << endl;
+//
+////fespace Vh0(MacroTh, P0);
+////Vh0 a = 1*(region==10) + 0.001*(region==20);
+//fespace Vh3(MacroTh, P1);
+//Vh3 u, v;
+//func f = 10;
+//solve Possion3D(u, v) = 
+//                     int3d(MacroTh, 10)((dx(u)*dx(v) + dy(u)*dy(v) + dz(u)*dz(v)))
+//                     +int3d(MacroTh, 20)(0.001*(dx(u)*dx(v) + dy(u)*dy(v) + dz(u)*dz(v)))
+//                     -int3d(MacroTh)(f*v)
+//                     +on(1, 2, 3, 4, 5, 6, u = 0);
+//plot(u, wait=1, value=1);
+
+ 
+//cout << MacroTh(0.5, 0.5, 0.5).region << endl;
+//cout << MacroTh(0.1, 0.1, 0.1).region << endl;
+
+func mesh3 MBall(int nx, int ny, int nz, real rx, real ry, real rz, real radius, int nGrid)
+{
+	
+	real[int] Rregion((nx*ny*nz + 1)*5);
+	real maxVal = max(max(nx, ny), nz);
+	real maxVol = (maxVal/nGrid)^3/6;
+	
+	meshS MacroTh = CuboidFace(0, 0, 0, nx, ny, nz, nGrid/maxVal, 1);
+	for(int i = 0; i < nx; i++)
+	{
+		for(int j = 0; j < ny; j++)
+		{
+			for(int k = 0; k < nz; k++)
+			{
+				meshS Ball = Sphere((rx + i), (ry + j), (rz + k), radius, 0.05, 20, 1);//UnitSurfaceHexV2(4, 1);
+				//Sphere((rx + i)*epsilon, (ry + j)*epsilon, (rz + k)*epsilon, radius*epsilon, 0.01, 10, 1);
+				//Cubic = movemesh3(Cubic, transfo=[rx + i + x*lenX, ry + j + y*lenY, rz + k + z*lenZ]); 
+				//Sphere((rx + i)*epsilon, (ry + j)*epsilon, (rz + k)*epsilon, radius*epsilon, 0.01, 10, 1);
+				//cout << rx + i + lenX/2 << "  " << ry + j + lenY/2 << "  " << rz + k + lenZ/2 << endl;
+				MacroTh = MacroTh + Ball;
+			    Rregion[(i*ny*nz + j*nz + k)*5] = (0.5 + i);
+				Rregion[(i*ny*nz + j*nz + k)*5 + 1] = (0.5 + j);
+				Rregion[(i*ny*nz + j*nz + k)*5 + 2] = (0.5 + k);
+				Rregion[(i*ny*nz + j*nz + k)*5 + 3] = 20;
+				Rregion[(i*ny*nz + j*nz + k)*5+ 4] = maxVol;
+			}
+		}
+	}
+	
+	Rregion[nx*ny*nz*5]     = 0.001;
+	Rregion[nx*ny*nz*5 + 1] = 0.001;
+	Rregion[nx*ny*nz*5 + 2] = 0.001;
+	Rregion[nx*ny*nz*5 + 3] = 10;
+	Rregion[nx*ny*nz*5 + 4] = maxVol;
+	//plot(MacroTh, wait=1);
+	mesh3 MacroTh1 = tetg(MacroTh, switch="paAAQYY", nbofregions=nx*ny*nz + 1, regionlist=Rregion);
+	//MacroTh = tetg(MacroTh);
+	//cout << maxVol << endl;
+	return MacroTh1;
+}
+
+//mesh3 MacroTh = MBall(8, 8, 8, 0.5, 0.5, 0.5, 0.3, 20);
+//plot(MacroTh, wait=1);
+//MacroTh =  trunc(MacroTh, x<=0.5||y<=0.5||z<=0.5, label=8);
+//plot(MacroTh, wait=1);
+//fespace Vh3(MacroTh, P1);
+//Vh3 u, v;
+//func f = 10;
+//solve Possion3D(u, v) = 
+//                     int3d(MacroTh, 10)((dx(u)*dx(v) + dy(u)*dy(v) + dz(u)*dz(v)))
+//                     +int3d(MacroTh, 20)(0.001*(dx(u)*dx(v) + dy(u)*dy(v) + dz(u)*dz(v)))
+//                     -int3d(MacroTh)(f*v)
+//                     +on(1, 2, 3, 4, 5, 6, u = 0);
+//plot(u, wait=1, value=1);
+
+
+func mesh3 CRandEllipsoid3D(int count, int num, bool isHole)
+{
+    int[int] N=[30, 30, 30];
+    real[int, int] B = [[0, 1], [0, 1], [0, 1]];
+    int[int, int] L = [[1, 2], [3, 4], [5, 6]];
+    
+    // 基础表面网格
+    meshS Th = SurfaceHex(N, B, L, 1);
+    
+    real[int] ra(count), rb(count), rc(count), radius(count), rx(count), ry(count), rz(count);
+    real[int] alpha(count), beta(count), gamma(count);
+    
+    int c = time();
+    randinit(c);
+    
+    int i = 0; 
+    for(int l = 0; l < num; l++)
+    {
+        for(int j = 0; j < num; j++)
+        {
+            for(int k = 0; k < num; k++)
+            {
+                
+                if(i < count) 
+                {
+                    ra[i] = 0.3/num;
+                    rb[i] = ra[i];
+                    rc[i] = ra[i];
+                    radius[i] = max(max(ra[i], rb[i]), rc[i]);
+                    alpha[i] = randreal1();
+                    beta[i] = randreal1();
+                    gamma[i] = randreal1();
+                    rx[i] = l * 1.0/num + 0.5/num;
+                    ry[i] = j * 1.0/num + 0.5/num;
+                    rz[i] = k * 1.0/num + 0.5/num;
+                    
+                   
+                    meshS ThBall = Ellipsoid(0, 0, 0, ra[i], rb[i], rc[i], 0.004, 10, 1);
+                    
+                    func fx = (cos(gamma[i])*cos(alpha[i]) - sin(gamma[i])*cos(beta[i])*sin(alpha[i]))*x 
+                            + (-cos(gamma[i])*sin(alpha[i]) - sin(gamma[i])*cos(beta[i])*cos(alpha[i]))*y 
+                            + sin(gamma[i])*sin(beta[i])*z;
+                    func fy = (sin(gamma[i])*cos(alpha[i]) + cos(gamma[i])*cos(beta[i])*sin(alpha[i]))*x 
+                            + (-sin(gamma[i])*sin(alpha[i]) + cos(gamma[i])*cos(beta[i])*cos(alpha[i]))*y 
+                            - cos(gamma[i])*sin(beta[i])*z;
+                    func fz = sin(beta[i])*sin(alpha[i])*x + sin(beta[i])*cos(alpha[i])*y + cos(beta[i])*z;
+                    
+                    ThBall = movemeshS(ThBall, transfo=[rx[i] + fx, ry[i] + fy, rz[i] + fz]);
+                    
+                    Th = Th + ThBall;
+                    cout << "generate the " << i + 1 << "th ellipsoid" << endl; 
+                    
+                    i = i + 1; // 在处理完当前球体后才增加索引
+                }
+            }
+        }
+    }
+    
+    mesh3 CellTh;
+    if(!isHole)
+    {
+        real[int] domain((count+1)*5);
+        domain[0] = 0.01; domain[1] = 0.01; domain[2] = 0.01;
+        domain[3] = 53; domain[4] = 0.00005;
+        for(int m = 0; m < count; m++)
+        {
+            domain[(m+1)*5] = rx[m];
+            domain[(m+1)*5 + 1] = ry[m];
+            domain[(m+1)*5 + 2] = rz[m];
+            domain[(m+1)*5 + 3] = 54;
+            domain[(m+1)*5 + 4] = 0.00005;
+        }
+        CellTh = tetg(Th, switch="paAAQYY", nbofregions=count + 1, regionlist=domain);
+    }
+    else
+    {
+        real[int] domain = [0.01, 0.01, 0.01, 53, 0.00005];
+        real[int] hole(count*3);
+        for(int m = 0; m < count; m++)
+        {
+            hole[m*3] = rx[m];
+            hole[m*3 + 1] = ry[m];
+            hole[m*3 + 2] = rz[m];
+        }
+        CellTh = tetg(Th, switch="paAAQYY", nbofholes=count, holelist=hole, nbofregions=1, regionlist=domain);
+    }
+    
+    return CellTh;
+}

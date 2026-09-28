@@ -1,0 +1,738 @@
+include "MeshFunc3D.edp"
+load "iovtk"
+
+verbosity = 0;
+
+ofstream errOut("example4_Errors.csv");
+errOut << "Time,L2_Err0,L2_Err1,L2_Err2,H1_Err0,H1_Err1,H1_Err2" << endl;
+
+
+
+real timeCellSetup = 0.0;        // 单胞网格、空间、材料函数和单胞矩阵
+real timeCellFirstOrder = 0.0;   // N1, N2, N3
+real timeEffectiveCoeff = 0.0;   // rhohat, muhat and ahat_ij
+real timeCellSecondOrder = 0.0;  // F, G and N_ij
+real timeCell = 0.0;             // 完整离线阶段
+real timeHomoSetup = 0.0;        // 均匀化网格、初值和矩阵组装
+real timeHomoSolve = 0.0;        // 均匀化方程时间迭代
+real timeReconstruction = 0.0;   // 在DNS细网格上重构U1和U2
+real timeDNSSetup = 0.0;         // DNS网格、初值和矩阵组装
+real timeDNS = 0.0;              // DNS时间迭代
+real timeDiagnostics = 0.0;      // 误差、范数、CSV和终端输出
+real timeDataOutput = 0.0;       // VTK和切面CSV输出；不计入在线时间
+
+
+int[int] vtkOrderU0 = [1];
+int[int] vtkOrderMulti = [1,1,1];
+int[int] vtkOrderError = [1,1,1];
+
+real tGlobalStart = clock();
+real tStart = 0.0;
+
+real T = 1.0;
+real dt = 0.005;
+int Nt = T/dt;
+real tsigma = 0.0;
+
+
+int outputStep = 50;
+
+
+real rhom = 20.0, rhoi = 1.0;
+real am = 1000.0, ai = 50.0;
+real mum = 50.0, mui = 0.5;
+
+
+func fsource = 600;
+
+
+tStart = clock();
+
+int cellGrid = 8;
+mesh3 CellTh = HCube(cellGrid);
+
+
+fespace CellVh(CellTh, P1);
+
+CellVh N1, N2, N3, vcell;
+CellVh F, G;
+CellVh N11, N22, N33, N12, N13, N23, N21, N31, N32;
+
+func chiCell = (x>=0.25)*(x<=0.75)
+             *(y>=0.25)*(y<=0.75)
+             *(z>=0.25)*(z<=0.75);
+func rho = rhom*(1.0-chiCell) + rhoi*chiCell;
+func aeps = am*(1.0-chiCell) + ai*chiCell;
+func mufrac = mum*(1.0-chiCell) + mui*chiCell;
+
+
+varf CellBilinear(ucell, qcell) =
+      int3d(CellTh)(aeps*(dx(ucell)*dx(qcell)+dy(ucell)*dy(qcell)+dz(ucell)*dz(qcell)))
+    + on(1,2,3,4,5,6, ucell=0);
+matrix CellMat = CellBilinear(CellVh, CellVh, solver=sparsesolver);
+set(CellMat, solver=sparsesolver);
+
+timeCellSetup = clock()-tStart;
+tStart = clock();
+
+
+
+varf CellRhsN1(dummy, qcell) =
+    -int3d(CellTh)(aeps*dx(qcell)) + on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN2(dummy, qcell) =
+    -int3d(CellTh)(aeps*dy(qcell)) + on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN3(dummy, qcell) =
+    -int3d(CellTh)(aeps*dz(qcell)) + on(1,2,3,4,5,6, dummy=0);
+
+real[int] cellRhs = CellRhsN1(0, CellVh);
+N1[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN2(0, CellVh);
+N2[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN3(0, CellVh);
+N3[] = CellMat^-1*cellRhs;
+
+timeCellFirstOrder = clock()-tStart;
+tStart = clock();
+
+real areaY = int3d(CellTh)(1.0);
+real rhohat = int3d(CellTh)(rho)/areaY;
+real muhat = int3d(CellTh)(mufrac)/areaY;
+
+real ahat11 = int3d(CellTh)(aeps*(1.0+dx(N1)))/areaY;
+real ahat22 = int3d(CellTh)(aeps*(1.0+dy(N2)))/areaY;
+real ahat33 = int3d(CellTh)(aeps*(1.0+dz(N3)))/areaY;
+real ahat12 = int3d(CellTh)(aeps*dx(N2))/areaY;
+real ahat13 = int3d(CellTh)(aeps*dx(N3))/areaY;
+real ahat21 = int3d(CellTh)(aeps*dy(N1))/areaY;
+real ahat23 = int3d(CellTh)(aeps*dy(N3))/areaY;
+real ahat31 = int3d(CellTh)(aeps*dz(N1))/areaY;
+real ahat32 = int3d(CellTh)(aeps*dz(N2))/areaY;
+
+timeEffectiveCoeff = clock()-tStart;
+tStart = clock();
+
+varf CellRhsF(dummy, qcell) =
+    -int3d(CellTh)((rho-rhohat)*qcell)
+    +on(1,2,3,4,5,6, dummy=0);
+varf CellRhsG(dummy, qcell) =
+    -int3d(CellTh)((mufrac-muhat)*qcell)
+    +on(1,2,3,4,5,6, dummy=0);
+
+varf CellRhsN11(dummy, qcell) =
+      -int3d(CellTh)((ahat11-aeps)*qcell)
+      -int3d(CellTh)(aeps*N1*dx(qcell))
+      +int3d(CellTh)(aeps*dx(N1)*qcell)
+      +on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN22(dummy, qcell) =
+      -int3d(CellTh)((ahat22-aeps)*qcell)
+      -int3d(CellTh)(aeps*N2*dy(qcell))
+      +int3d(CellTh)(aeps*dy(N2)*qcell)
+      +on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN33(dummy, qcell) =
+      -int3d(CellTh)((ahat33-aeps)*qcell)
+      -int3d(CellTh)(aeps*N3*dz(qcell))
+      +int3d(CellTh)(aeps*dz(N3)*qcell)
+      +on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN12(dummy, qcell) =
+      -int3d(CellTh)(ahat12*qcell)
+      -int3d(CellTh)(aeps*N2*dx(qcell))
+      +int3d(CellTh)(aeps*dx(N2)*qcell)
+      +on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN13(dummy, qcell) =
+      -int3d(CellTh)(ahat13*qcell)
+      -int3d(CellTh)(aeps*N3*dx(qcell))
+      +int3d(CellTh)(aeps*dx(N3)*qcell)
+      +on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN23(dummy, qcell) =
+      -int3d(CellTh)(ahat23*qcell)
+      -int3d(CellTh)(aeps*N3*dy(qcell))
+      +int3d(CellTh)(aeps*dy(N3)*qcell)
+      +on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN21(dummy, qcell) =
+      -int3d(CellTh)(ahat21*qcell)
+      -int3d(CellTh)(aeps*N1*dy(qcell))
+      +int3d(CellTh)(aeps*dy(N1)*qcell)
+      +on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN31(dummy, qcell) =
+      -int3d(CellTh)(ahat31*qcell)
+      -int3d(CellTh)(aeps*N1*dz(qcell))
+      +int3d(CellTh)(aeps*dz(N1)*qcell)
+      +on(1,2,3,4,5,6, dummy=0);
+varf CellRhsN32(dummy, qcell) =
+      -int3d(CellTh)(ahat32*qcell)
+      -int3d(CellTh)(aeps*N2*dz(qcell))
+      +int3d(CellTh)(aeps*dz(N2)*qcell)
+      +on(1,2,3,4,5,6, dummy=0);
+
+
+cellRhs = CellRhsF(0, CellVh);   F[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsG(0, CellVh);   G[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN11(0, CellVh); N11[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN22(0, CellVh); N22[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN33(0, CellVh); N33[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN12(0, CellVh); N12[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN13(0, CellVh); N13[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN23(0, CellVh); N23[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN21(0, CellVh); N21[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN31(0, CellVh); N31[] = CellMat^-1*cellRhs;
+cellRhs = CellRhsN32(0, CellVh); N32[] = CellMat^-1*cellRhs;
+
+timeCellSecondOrder = clock()-tStart;
+timeCell = timeCellSetup
+         + timeCellFirstOrder
+         + timeEffectiveCoeff
+         + timeCellSecondOrder;
+
+//=========================================================
+// Homogenized-equation setup
+//=========================================================
+tStart = clock();
+
+mesh3 HomoTh = HCube(10);
+fespace HomoVh(HomoTh, P2);
+
+real gammanm = 0.6;
+real betanm = 0.25*(gammanm+0.5)^2;
+real c0 = 1.0/(betanm*dt*dt);
+real c1 = 1.0/(betanm*dt);
+real c2 = 1.0/(2.0*betanm)-1.0;
+real c3 = dt*gammanm*c0;
+
+real betafrac = 0.5;
+real sigma = 1.0-betafrac/2.0;
+real Gamma2beta = 0.8862269;
+real Cbeta = dt^(-betafrac)/Gamma2beta;
+
+real[int] A(Nt+2), B(Nt+2);
+A[0] = sigma^(1.0-betafrac);
+B[0] = 0.0;
+for (int k=1; k<=Nt+1; k++) {
+    A[k] = (k+sigma)^(1.0-betafrac)-(k-1.0+sigma)^(1.0-betafrac);
+    B[k] = ((k+sigma)^(2.0-betafrac)-(k-1.0+sigma)^(2.0-betafrac))/(2.0-betafrac)
+         - 0.5*((k+sigma)^(1.0-betafrac)+(k-1.0+sigma)^(1.0-betafrac));
+}
+
+real cnn = A[0];
+
+HomoVh unp1, vtest;
+HomoVh un=0.0, vn=0.0, an;
+HomoVh apred, vpred, HistorySumV;
+HomoVh anp1, vnp1, uSigma, aSigma, fracDv;
+HomoVh[int] Vhist(Nt+1);
+for (int i=0; i<=Nt; i++) Vhist[i] = 0.0;
+
+problem InitAccel(an, vtest, solver=sparsesolver) =
+      int3d(HomoTh)(rhohat*an*vtest)
+    - int3d(HomoTh)(
+          fsource*vtest
+        - ahat11*dx(un)*dx(vtest)
+        - ahat22*dy(un)*dy(vtest)
+        - ahat33*dz(un)*dz(vtest)
+        - ahat12*dy(un)*dx(vtest)
+        - ahat13*dz(un)*dx(vtest)
+        - ahat21*dx(un)*dy(vtest)
+        - ahat23*dz(un)*dy(vtest)
+        - ahat31*dx(un)*dz(vtest)
+        - ahat32*dy(un)*dz(vtest)
+      )
+    + on(1,2,3,4, an=0);
+
+InitAccel;
+
+varf MacroBilinear(umacro, qmacro) =
+      int3d(HomoTh)(
+          (rhohat*sigma*c0+muhat*Cbeta*cnn*c3)*umacro*qmacro
+        + sigma*(
+              ahat11*dx(umacro)*dx(qmacro)
+            + ahat22*dy(umacro)*dy(qmacro)
+            + ahat33*dz(umacro)*dz(qmacro)
+            + ahat12*dy(umacro)*dx(qmacro)
+            + ahat13*dz(umacro)*dx(qmacro)
+            + ahat21*dx(umacro)*dy(qmacro)
+            + ahat23*dz(umacro)*dy(qmacro)
+            + ahat31*dx(umacro)*dz(qmacro)
+            + ahat32*dy(umacro)*dz(qmacro)
+          )
+      )
+    + on(1,2,3,4, umacro=0);
+
+matrix MacroMat = MacroBilinear(HomoVh, HomoVh);
+set(MacroMat, solver=sparsesolver);
+
+varf MacroRight(dummy, qmacro) =
+      int3d(HomoTh)(
+          fsource*qmacro
+        - rhohat*(sigma*apred+(1.0-sigma)*an)*qmacro
+        - muhat*Cbeta*(cnn*(vpred-vn)+HistorySumV)*qmacro
+        - (1.0-sigma)*(
+              ahat11*dx(un)*dx(qmacro)
+            + ahat22*dy(un)*dy(qmacro)
+            + ahat33*dz(un)*dz(qmacro)
+            + ahat12*dy(un)*dx(qmacro)
+            + ahat13*dz(un)*dx(qmacro)
+            + ahat21*dx(un)*dy(qmacro)
+            + ahat23*dz(un)*dy(qmacro)
+            + ahat31*dx(un)*dz(qmacro)
+            + ahat32*dy(un)*dz(qmacro)
+          )
+      )
+    + on(1,2,3,4, dummy=0);
+
+real[int] macroRhs(HomoVh.ndof);
+
+timeHomoSetup = clock()-tStart;//homogenized-equation  pre-setup time
+
+//=========================================================
+// DNS setup
+//=========================================================
+tStart = clock();
+
+//int n = 4;//良好的输出
+int n=6;//一层有几个单胞
+real epsilon = 1.0/n;
+
+
+int dnsGridPerCell = 8;//dns网格每个单胞的网格数
+mesh3 MacroTh = HCube(dnsGridPerCell*n);
+fespace DNSVh(MacroTh, P1);
+
+func cellX = x/epsilon-floor(x/epsilon);
+func cellY = y/epsilon-floor(y/epsilon);
+func cellZ = z/epsilon-floor(z/epsilon);
+func chiMacro = (cellX>=0.25)*(cellX<=0.75)
+              *(cellY>=0.25)*(cellY<=0.75)
+              *(cellZ>=0.25)*(cellZ<=0.75);
+func rhoM = rhom*(1.0-chiMacro)+rhoi*chiMacro;
+func aepsM = am*(1.0-chiMacro)+ai*chiMacro;
+func mufracM = mum*(1.0-chiMacro)+mui*chiMacro;
+
+DNSVh Udnsnp1, vtestdns;
+DNSVh Udnsn=0.0, Vdnsn=0.0, Adnsn;
+DNSVh apreddns, vpreddns, HistorySumVdns;
+DNSVh Adnsnp1, Vdnsnp1, UdnsSigma;
+DNSVh[int] Vhistdns(Nt+1);
+for (int i=0; i<=Nt; i++) Vhistdns[i] = 0.0;
+
+problem InitAccelDNS(Adnsn, vtestdns, solver=sparsesolver) =
+      int3d(MacroTh)(rhoM*Adnsn*vtestdns)
+    - int3d(MacroTh)(
+          fsource*vtestdns
+        - aepsM*(
+              dx(Udnsn)*dx(vtestdns)
+            + dy(Udnsn)*dy(vtestdns)
+            + dz(Udnsn)*dz(vtestdns)
+          )
+      )
+    + on(1,2,3,4, Adnsn=0);
+
+InitAccelDNS;
+
+varf DNSBilinear(udns, qdns) =
+      int3d(MacroTh)(
+          (rhoM*sigma*c0+mufracM*Cbeta*cnn*c3)*udns*qdns
+        + sigma*aepsM*(
+              dx(udns)*dx(qdns)
+            + dy(udns)*dy(qdns)
+            + dz(udns)*dz(qdns)
+          )
+      )
+    + on(1,2,3,4, udns=0);
+
+matrix DNSMat = DNSBilinear(DNSVh, DNSVh);
+set(DNSMat, solver=sparsesolver);
+
+varf DNSRight(dummy, qdns) =
+      int3d(MacroTh)(
+          fsource*qdns
+        - rhoM*(sigma*apreddns+(1.0-sigma)*Adnsn)*qdns
+        - mufracM*Cbeta*(cnn*(vpreddns-Vdnsn)+HistorySumVdns)*qdns
+        - (1.0-sigma)*aepsM*(
+              dx(Udnsn)*dx(qdns)
+            + dy(Udnsn)*dy(qdns)
+            + dz(Udnsn)*dz(qdns)
+          )
+      )
+    + on(1,2,3,4, dummy=0);
+
+real[int] dnsRhs(DNSVh.ndof);
+
+timeDNSSetup = clock()-tStart;
+
+DNSVh U0OnDNS, Ueps1, Ueps2, correction2;
+DNSVh errU0, errU1, errU2;
+DNSVh absErrField0, absErrField1, absErrField2;
+
+cout << endl;
+cout << "Table : Comparison of computational cost." << endl;
+cout << "--" << endl;
+cout << "                    Original equation      Cell problem      Homogenized equation" << endl;
+cout << "Number of elements   "
+     << MacroTh.nt << "                   "
+     << CellTh.nt << "               "
+     << HomoTh.nt << endl;
+
+cout << "Number of nodes      "
+     << MacroTh.nv << "                   "
+     << CellTh.nv << "               "
+     << HomoTh.nv << endl;
+cout << "--" << endl;
+cout << endl;
+cout << "Start time iteration" << endl;
+
+DNSVh N1Map  = N1(cellX,cellY,cellZ);
+DNSVh N2Map  = N2(cellX,cellY,cellZ);
+DNSVh N3Map  = N3(cellX,cellY,cellZ);
+
+DNSVh N11Map = N11(cellX,cellY,cellZ);
+DNSVh N22Map = N22(cellX,cellY,cellZ);
+DNSVh N33Map = N33(cellX,cellY,cellZ);
+DNSVh N12Map = N12(cellX,cellY,cellZ);
+DNSVh N13Map = N13(cellX,cellY,cellZ);
+DNSVh N23Map = N23(cellX,cellY,cellZ);
+DNSVh N21Map = N21(cellX,cellY,cellZ);
+DNSVh N31Map = N31(cellX,cellY,cellZ);
+DNSVh N32Map = N32(cellX,cellY,cellZ);
+
+DNSVh FMap = F(cellX,cellY,cellZ);
+DNSVh GMap = G(cellX,cellY,cellZ);
+
+DNSVh correction2Scaled;
+
+for(int step=0;step<Nt;step++)
+{
+    tsigma=(step+sigma)*dt;
+
+    // Strict L2-1_sigma first-step treatment from the paper:
+    // C_0^(1)=A_0 at step=0, and C_0^(n+1)=A_0+B_1 for step>=1.
+    cnn = (step == 0) ? A[0] : (A[0] + B[1]);
+    
+    if (step == 1)
+{
+    MacroMat = MacroBilinear(HomoVh, HomoVh);
+    set(MacroMat, solver=sparsesolver);
+
+    DNSMat = DNSBilinear(DNSVh, DNSVh);
+    set(DNSMat, solver=sparsesolver);
+}
+    //=====================================================
+    // Homogenized-equation time integration
+    //=====================================================
+    tStart=clock();
+
+    apred=-c0*un-c1*vn-c2*an;
+
+    vpred=vn
+         +dt*(1.0-gammanm)*an
+         +dt*gammanm*apred;
+
+    HistorySumV=0.0;
+
+    if(step>0)
+    {
+        real c0n=A[step]-B[step];
+
+        HistorySumV=
+            HistorySumV
+           +c0n*(Vhist[1]-Vhist[0]);
+
+        for(int j=1;j<step;j++)
+        {
+            real cjn=
+                  A[step-j]
+                + B[step-j+1]
+                - B[step-j];
+
+            HistorySumV=
+                HistorySumV
+               +cjn*(Vhist[j+1]-Vhist[j]);
+        }
+    }
+
+    macroRhs=MacroRight(0,HomoVh);
+    unp1[]=MacroMat^-1*macroRhs;
+
+    anp1=c0*unp1+apred;
+    vnp1=c3*unp1+vpred;
+
+    uSigma=sigma*unp1+(1.0-sigma)*un;
+    aSigma=sigma*anp1+(1.0-sigma)*an;
+
+    fracDv=Cbeta*(
+          cnn*(vnp1-vn)
+        + HistorySumV
+    );
+
+    // History storage and state update belong to macro solve
+    Vhist[step+1]=vnp1;
+
+    un=unp1;
+    vn=vnp1;
+    an=anp1;
+
+    timeHomoSolve+=clock()-tStart;
+
+    //=====================================================
+    // First- and second-order reconstruction on DNS mesh
+    //=====================================================
+    tStart=clock();
+
+    // Project the homogenized solution once onto the common comparison mesh.
+    U0OnDNS=uSigma;
+
+    Ueps1 = U0OnDNS + epsilon*(
+      N1Map*dx(uSigma)
+    + N2Map*dy(uSigma)
+    + N3Map*dz(uSigma)
+);
+
+correction2 =
+      N11Map*dxx(uSigma)
+    + N22Map*dyy(uSigma)
+    + N33Map*dzz(uSigma)
+    + (N12Map + N21Map)*dxy(uSigma)
+    + (N13Map + N31Map)*dxz(uSigma)
+    + (N23Map + N32Map)*dyz(uSigma)
+    + FMap*aSigma
+    + GMap*fracDv;
+
+Ueps2 = Ueps1
+      + epsilon^2*correction2;
+
+correction2Scaled = epsilon^2*correction2;
+
+real correctionNormSq =
+    int3d(MacroTh)(correction2Scaled^2);
+
+real errorCorrectionCross =
+    int3d(MacroTh)(errU1*correction2Scaled);
+
+real deltaL2Sq =
+    correctionNormSq - 2.0*errorCorrectionCross;
+
+/*cout << "  Second-order L2 diagnostic: "
+     << "||c2||^2=" << correctionNormSq
+     << ", 2(e1,c2)=" << 2.0*errorCorrectionCross
+     << ", delta=" << deltaL2Sq << endl;*/
+
+    timeReconstruction+=clock()-tStart;
+
+    //=====================================================
+    // DNS time integration
+    //=====================================================
+    tStart=clock();
+
+    apreddns=
+          -c0*Udnsn
+          -c1*Vdnsn
+          -c2*Adnsn;
+
+    vpreddns=
+          Vdnsn
+        + dt*(1.0-gammanm)*Adnsn
+        + dt*gammanm*apreddns;
+
+    HistorySumVdns=0.0;
+
+    if(step>0)
+    {
+        cout<<"step="<<step<<endl;
+        real c0ndns=A[step]-B[step];
+
+        HistorySumVdns=
+            HistorySumVdns
+           +c0ndns*(Vhistdns[1]-Vhistdns[0]);
+
+        for(int j=1;j<step;j++)
+        {
+            real cjndns=
+                  A[step-j]
+                + B[step-j+1]
+                - B[step-j];
+
+            HistorySumVdns=
+                HistorySumVdns
+               +cjndns*(
+                    Vhistdns[j+1]
+                   -Vhistdns[j]
+                );
+        }
+    }
+
+    dnsRhs=DNSRight(0,DNSVh);
+    Udnsnp1[]=DNSMat^-1*dnsRhs;
+
+    Adnsnp1=c0*Udnsnp1+apreddns;
+    Vdnsnp1=c3*Udnsnp1+vpreddns;
+
+    UdnsSigma=
+          sigma*Udnsnp1
+        + (1.0-sigma)*Udnsn;
+
+    // History storage and state update belong to DNS solve
+    Vhistdns[step+1]=Vdnsnp1;
+
+    Udnsn=Udnsnp1;
+    Vdnsn=Vdnsnp1;
+    Adnsn=Adnsnp1;
+
+    timeDNS+=clock()-tStart;
+
+    //=====================================================
+    // Diagnostics and console/CSV output
+    //=====================================================
+    tStart=clock();
+
+    errU0=UdnsSigma-U0OnDNS;
+    errU1=UdnsSigma-Ueps1;
+    errU2=UdnsSigma-Ueps2;
+
+    real L2NormU=
+        sqrt(int3d(MacroTh)(UdnsSigma^2));
+
+    real H1NormU=
+        sqrt(int3d(MacroTh)(
+              dx(UdnsSigma)^2
+            + dy(UdnsSigma)^2
+            + dz(UdnsSigma)^2
+        ));
+
+    real L2ErrAbs0=sqrt(int3d(MacroTh)(errU0^2));
+    real L2ErrAbs1=sqrt(int3d(MacroTh)(errU1^2));
+    real L2ErrAbs2=sqrt(int3d(MacroTh)(errU2^2));
+
+    real H1ErrAbs0=sqrt(int3d(MacroTh)(
+          dx(errU0)^2+dy(errU0)^2+dz(errU0)^2));
+    real H1ErrAbs1=sqrt(int3d(MacroTh)(
+          dx(errU1)^2+dy(errU1)^2+dz(errU1)^2));
+    real H1ErrAbs2=sqrt(int3d(MacroTh)(
+          dx(errU2)^2+dy(errU2)^2+dz(errU2)^2));
+
+    real relErrL20=(L2NormU>1e-12)
+        ? L2ErrAbs0/L2NormU*100.0
+        : 0.0;
+
+    real relErrL21=(L2NormU>1e-12)
+        ? L2ErrAbs1/L2NormU*100.0
+        : 0.0;
+
+    real relErrL22=(L2NormU>1e-12)
+        ? L2ErrAbs2/L2NormU*100.0
+        : 0.0;
+
+    real relErrH10=(H1NormU>1e-12)
+        ? H1ErrAbs0/H1NormU*100.0
+        : 0.0;
+
+    real relErrH11=(H1NormU>1e-12)
+        ? H1ErrAbs1/H1NormU*100.0
+        : 0.0;
+
+    real relErrH12=(H1NormU>1e-12)
+        ? H1ErrAbs2/H1NormU*100.0
+        : 0.0;
+
+   
+cout << "Step " << step+1 << "/" << Nt
+     << ", t_sigma = " << tsigma << endl;
+
+cout << "  Relative L2 error (%): "
+     << "U0 = " << relErrL20
+     << ", U1 = " << relErrL21
+     << ", U2 = " << relErrL22 << endl;
+
+cout << "  Relative H1 seminorm error (%): "
+     << "U0 = " << relErrH10
+     << ", U1 = " << relErrH11
+     << ", U2 = " << relErrH12 << endl;
+
+    errOut
+        << tsigma << ","
+        << relErrL20 << ","
+        << relErrL21 << ","
+        << relErrL22 << ","
+        << relErrH10 << ","
+        << relErrH11 << ","
+        << relErrH12 << endl;
+
+    
+
+    timeDiagnostics+=clock()-tStart;
+
+    //=====================================================
+    // Solution/error-field output: counted separately and excluded from
+    // offline, online and DNS computation times.
+    //=====================================================
+    if(step==outputStep)
+    {
+        tStart=clock();
+
+        absErrField0=abs(errU0);
+        absErrField1=abs(errU1);
+        absErrField2=abs(errU2);
+
+        
+    savevtk(
+        "example4u0_step.vtu",
+        HomoTh,
+        uSigma,
+        dataname = "uSigma",
+         order=vtkOrderU0
+    );
+
+        savevtk(
+            "example4_solution_fields.vtu",
+            MacroTh,
+            UdnsSigma,
+            Ueps1,
+            Ueps2,
+            dataname=" UdnsSigma U1 U2",
+              order=vtkOrderMulti
+        );
+
+        savevtk(
+            "example4_absolute_error_fields.vtu",
+            MacroTh,
+            absErrField0,
+            absErrField1,
+            absErrField2,
+            dataname="AbsErr0 AbsErr1 AbsErr2",
+            order=vtkOrderError
+        );
+    }
+}
+
+real timeOffline =
+      timeCell;
+
+real timeOnline =
+      timeHomoSetup
+    + timeHomoSolve
+    + timeReconstruction;
+
+real timeDNSTotal =
+      timeDNSSetup
+    + timeDNS;
+
+real timeMultiscaleTotal =
+      timeOffline
+    + timeOnline;
+
+
+cout << endl;
+cout << "========== Computational cost ==========" << endl;
+
+cout << "Offline computation       : "
+     << timeOffline << " s" << endl;
+
+cout << "Online computation        : "
+     << timeOnline << " s" << endl;
+
+cout << "DNS computation           : "
+     << timeDNSTotal << " s" << endl;
+
+cout << "Total multiscale          : "
+     << timeMultiscaleTotal << " s" << endl;
+
+
+
+cout << "========================================" << endl;
